@@ -2,18 +2,57 @@
 require_once '../config/database.php';
 requireAdminLogin();
 
-// Handle status updates
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
-    $booking_id = intval($_POST['booking_id']);
-    $new_status = sanitizeInput($_POST['status']);
+$success_message = '';
+$error_message = '';
+
+// Handle different POST actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Handle status updates
+    if (isset($_POST['update_status'])) {
+        $booking_id = intval($_POST['booking_id']);
+        $new_status = sanitizeInput($_POST['status']);
+        
+        try {
+            $pdo = getConnection();
+            $stmt = $pdo->prepare("UPDATE bookings SET status = ? WHERE id = ?");
+            $stmt->execute([$new_status, $booking_id]);
+            $success_message = "Booking status updated successfully!";
+        } catch(PDOException $e) {
+            $error_message = "Error updating booking status.";
+        }
+    }
     
-    try {
-        $pdo = getConnection();
-        $stmt = $pdo->prepare("UPDATE bookings SET status = ? WHERE id = ?");
-        $stmt->execute([$new_status, $booking_id]);
-        $success_message = "Booking status updated successfully!";
-    } catch(PDOException $e) {
-        $error_message = "Error updating booking status.";
+    // Handle adding expenses
+    if (isset($_POST['add_expense'])) {
+        $booking_id = intval($_POST['booking_id']);
+        $expense_type = sanitizeInput($_POST['expense_type']);
+        $description = sanitizeInput($_POST['description']);
+        $amount = floatval($_POST['amount']);
+        $quantity = intval($_POST['quantity']) ?: 1;
+        
+        try {
+            $pdo = getConnection();
+            $stmt = $pdo->prepare("INSERT INTO booking_expenses (booking_id, expense_type, description, amount, quantity) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$booking_id, $expense_type, $description, $amount, $quantity]);
+            $success_message = "Expense added successfully!";
+        } catch(PDOException $e) {
+            $error_message = "Error adding expense: " . $e->getMessage();
+        }
+    }
+    
+    // Handle deleting expenses
+    if (isset($_POST['delete_expense'])) {
+        $expense_id = intval($_POST['expense_id']);
+        $booking_id = intval($_POST['booking_id']);
+        
+        try {
+            $pdo = getConnection();
+            $stmt = $pdo->prepare("DELETE FROM booking_expenses WHERE id = ? AND booking_id = ?");
+            $stmt->execute([$expense_id, $booking_id]);
+            $success_message = "Expense deleted successfully!";
+        } catch(PDOException $e) {
+            $error_message = "Error deleting expense.";
+        }
     }
 }
 
@@ -61,12 +100,15 @@ if (!empty($where_conditions)) {
 try {
     $pdo = getConnection();
     
-    // Get bookings with filters
-    $query = "SELECT b.*, r.room_name, rt.name as room_type_name 
+    // Get bookings with filters and expense totals
+    $query = "SELECT b.*, r.room_name, rt.name as room_type_name,
+              COALESCE(SUM(be.amount * be.quantity), 0) as total_expenses
               FROM bookings b 
               LEFT JOIN rooms r ON b.room_id = r.id 
               LEFT JOIN room_types rt ON r.room_type_id = rt.id 
+              LEFT JOIN booking_expenses be ON b.id = be.booking_id
               $where_clause 
+              GROUP BY b.id
               ORDER BY b.created_at DESC";
     
     $stmt = $pdo->prepare($query);
@@ -81,10 +123,15 @@ try {
     $stmt = $pdo->query("SELECT DISTINCT booking_source FROM bookings WHERE booking_source IS NOT NULL");
     $booking_sources = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
+    // Get expense items for quick selection
+    $stmt = $pdo->query("SELECT * FROM expense_items WHERE is_active = 1 ORDER BY category, item_name");
+    $expense_items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
 } catch(PDOException $e) {
     $bookings = [];
     $room_types = [];
     $booking_sources = [];
+    $expense_items = [];
 }
 ?>
 
@@ -410,6 +457,152 @@ try {
         .stat-card.pending .stat-value { color: #f39c12; }
         .stat-card.cancelled .stat-value { color: #e74c3c; }
 
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: none;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from { transform: translateY(-50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            line-height: 1;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+
+        .close:hover {
+            color: #e74c3c;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        .expense-form {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+        }
+
+        .expenses-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .expenses-table table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        .expenses-table th,
+        .expenses-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .expenses-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .bill-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            font-family: 'Times New Roman', serif;
+        }
+
+        .btn-info {
+            background: linear-gradient(135deg, #17a2b8, #138496);
+        }
+
+        .btn-info:hover {
+            background: linear-gradient(135deg, #138496, #117a8b);
+        }
+
+        @media print {
+            .modal {
+                display: block !important;
+                position: static;
+                background: none;
+            }
+            
+            .modal-content {
+                box-shadow: none;
+                border: none;
+                margin: 0;
+                width: 100%;
+                max-width: none;
+            }
+            
+            .close, .bill-header button {
+                display: none !important;
+            }
+        }
+
         @media (max-width: 768px) {
             .admin-menu {
                 display: none;
@@ -539,7 +732,9 @@ try {
                             <th>Check-in</th>
                             <th>Check-out</th>
                             <th>Guests</th>
-                            <th>Amount</th>
+                            <th>Room Amount</th>
+                            <th>Expenses</th>
+                            <th>Total</th>
                             <th>Source</th>
                             <th>Status</th>
                             <th>Actions</th>
@@ -548,7 +743,7 @@ try {
                     <tbody>
                         <?php if (empty($bookings)): ?>
                             <tr>
-                                <td colspan="9" style="text-align: center; padding: 2rem; color: #666;">
+                                <td colspan="11" style="text-align: center; padding: 2rem; color: #666;">
                                     No bookings found.
                                 </td>
                             </tr>
@@ -571,6 +766,8 @@ try {
                                     <td><?php echo formatDate($booking['check_out']); ?></td>
                                     <td><?php echo $booking['guests_count']; ?></td>
                                     <td><?php echo $booking['total_amount'] ? formatCurrency($booking['total_amount']) : 'N/A'; ?></td>
+                                    <td><?php echo formatCurrency($booking['total_expenses']); ?></td>
+                                    <td><strong><?php echo formatCurrency(($booking['total_amount'] ?: 0) + $booking['total_expenses']); ?></strong></td>
                                     <td><?php echo htmlspecialchars(ucfirst($booking['booking_source'])); ?></td>
                                     <td>
                                         <span class="status-badge status-<?php echo $booking['status']; ?>">
@@ -581,6 +778,8 @@ try {
                                         <div class="booking-actions">
                                             <button class="btn btn-sm" onclick="viewBooking(<?php echo $booking['id']; ?>)">View</button>
                                             <button class="btn btn-warning btn-sm" onclick="updateStatus(<?php echo $booking['id']; ?>, '<?php echo $booking['status']; ?>')">Status</button>
+                                            <button class="btn btn-success btn-sm" onclick="manageExpenses(<?php echo $booking['id']; ?>)">Expenses</button>
+                                            <button class="btn btn-info btn-sm" onclick="printBill(<?php echo $booking['id']; ?>)">Print Bill</button>
                                         </div>
                                     </td>
                                 </tr>
@@ -621,8 +820,80 @@ try {
         </div>
     </div>
 
+    <!-- Manage Expenses Modal -->
+    <div id="expensesModal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="close" onclick="closeModal('expensesModal')">&times;</span>
+            <h2>Manage Expenses</h2>
+            
+            <!-- Add Expense Form -->
+            <div class="expense-form">
+                <h3>Add New Expense</h3>
+                <form method="POST" id="addExpenseForm">
+                    <input type="hidden" id="expense_booking_id" name="booking_id">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="expense_type">Category</label>
+                            <select id="expense_type" name="expense_type" required onchange="updateQuickItems()">
+                                <option value="">Select Category</option>
+                                <option value="laundry">Laundry</option>
+                                <option value="food">Food</option>
+                                <option value="beverages">Beverages</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="quick_items">Quick Select</label>
+                            <select id="quick_items" onchange="selectQuickItem()">
+                                <option value="">Choose an item...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="description">Description</label>
+                            <input type="text" id="description" name="description" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="quantity">Quantity</label>
+                            <input type="number" id="quantity" name="quantity" min="1" value="1" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="amount">Amount ($)</label>
+                            <input type="number" id="amount" name="amount" step="0.01" min="0" required>
+                        </div>
+                        <div class="form-group">
+                            <button type="submit" name="add_expense" class="btn btn-success">Add Expense</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Current Expenses List -->
+            <div class="expenses-list">
+                <h3>Current Expenses</h3>
+                <div id="expensesList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Print Bill Modal -->
+    <div id="printBillModal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <span class="close" onclick="closeModal('printBillModal')">&times;</span>
+            <div class="bill-header">
+                <button onclick="printBill()" class="btn btn-primary" style="float: right; margin-bottom: 1rem;">Print Bill</button>
+                <h2>Guest Bill</h2>
+            </div>
+            <div id="billContent"></div>
+        </div>
+    </div>
+
     <script>
         const bookings = <?php echo json_encode($bookings); ?>;
+        const expenseItems = <?php echo json_encode($expense_items); ?>;
 
         function openModal(modalId) {
             document.getElementById(modalId).style.display = 'block';
@@ -664,6 +935,226 @@ try {
             document.getElementById('status_booking_id').value = bookingId;
             document.getElementById('new_status').value = currentStatus;
             openModal('updateStatusModal');
+        }
+
+        // New functions for expense management
+        function manageExpenses(bookingId) {
+            document.getElementById('expense_booking_id').value = bookingId;
+            loadExpenses(bookingId);
+            openModal('expensesModal');
+        }
+
+        function updateQuickItems() {
+            const category = document.getElementById('expense_type').value;
+            const quickSelect = document.getElementById('quick_items');
+            
+            // Clear existing options
+            quickSelect.innerHTML = '<option value="">Choose an item...</option>';
+            
+            if (category) {
+                const categoryItems = expenseItems.filter(item => item.category === category);
+                categoryItems.forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = JSON.stringify({description: item.item_name, amount: item.price});
+                    option.textContent = `${item.item_name} - $${parseFloat(item.price).toFixed(2)}`;
+                    quickSelect.appendChild(option);
+                });
+            }
+        }
+
+        function selectQuickItem() {
+            const quickSelect = document.getElementById('quick_items');
+            if (quickSelect.value) {
+                const itemData = JSON.parse(quickSelect.value);
+                document.getElementById('description').value = itemData.description;
+                document.getElementById('amount').value = parseFloat(itemData.amount).toFixed(2);
+            }
+        }
+
+        async function loadExpenses(bookingId) {
+            try {
+                const response = await fetch(`get_expenses.php?booking_id=${bookingId}`);
+                const expenses = await response.json();
+                
+                let expensesHtml = '';
+                if (expenses.length === 0) {
+                    expensesHtml = '<p>No expenses added yet.</p>';
+                } else {
+                    expensesHtml = '<div class="expenses-table"><table class="table"><thead><tr><th>Category</th><th>Description</th><th>Qty</th><th>Amount</th><th>Total</th><th>Action</th></tr></thead><tbody>';
+                    expenses.forEach(expense => {
+                        const total = parseFloat(expense.amount) * parseInt(expense.quantity);
+                        expensesHtml += `
+                            <tr>
+                                <td>${expense.expense_type.charAt(0).toUpperCase() + expense.expense_type.slice(1)}</td>
+                                <td>${expense.description}</td>
+                                <td>${expense.quantity}</td>
+                                <td>$${parseFloat(expense.amount).toFixed(2)}</td>
+                                <td>$${total.toFixed(2)}</td>
+                                <td>
+                                    <form method="POST" style="display: inline;" onsubmit="return confirm('Delete this expense?')">
+                                        <input type="hidden" name="expense_id" value="${expense.id}">
+                                        <input type="hidden" name="booking_id" value="${bookingId}">
+                                        <button type="submit" name="delete_expense" class="btn btn-danger btn-sm">Delete</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    expensesHtml += '</tbody></table></div>';
+                }
+                
+                document.getElementById('expensesList').innerHTML = expensesHtml;
+            } catch (error) {
+                console.error('Error loading expenses:', error);
+                document.getElementById('expensesList').innerHTML = '<p>Error loading expenses.</p>';
+            }
+        }
+
+        async function printBill(bookingId) {
+            if (typeof bookingId === 'undefined') {
+                // If called from print button inside modal, print the current content
+                window.print();
+                return;
+            }
+            
+            try {
+                const response = await fetch(`get_bill.php?booking_id=${bookingId}`);
+                const billData = await response.json();
+                
+                if (billData.error) {
+                    alert('Error loading bill: ' + billData.error);
+                    return;
+                }
+                
+                const billHtml = generateBillHTML(billData);
+                document.getElementById('billContent').innerHTML = billHtml;
+                openModal('printBillModal');
+            } catch (error) {
+                console.error('Error loading bill:', error);
+                alert('Error loading bill data.');
+            }
+        }
+
+        function generateBillHTML(data) {
+            const checkIn = new Date(data.booking.check_in);
+            const checkOut = new Date(data.booking.check_out);
+            const nights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
+            
+            let expensesHtml = '';
+            let expensesTotal = 0;
+            
+            if (data.expenses && data.expenses.length > 0) {
+                data.expenses.forEach(expense => {
+                    const lineTotal = parseFloat(expense.amount) * parseInt(expense.quantity);
+                    expensesTotal += lineTotal;
+                    expensesHtml += `
+                        <tr>
+                            <td>${expense.description}</td>
+                            <td>${expense.quantity}</td>
+                            <td>$${parseFloat(expense.amount).toFixed(2)}</td>
+                            <td>$${lineTotal.toFixed(2)}</td>
+                        </tr>
+                    `;
+                });
+            }
+            
+            const roomTotal = parseFloat(data.booking.total_amount) || 0;
+            const grandTotal = roomTotal + expensesTotal;
+            
+            return `
+                <div class="bill-content" style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+                    <div style="text-align: center; margin-bottom: 2rem; border-bottom: 2px solid #333; padding-bottom: 1rem;">
+                        <h1 style="color: #333; margin: 0;">Grand Hotel</h1>
+                        <p style="margin: 0.5rem 0;">123 Hotel Street, City, State 12345</p>
+                        <p style="margin: 0;">Phone: (555) 123-4567 | Email: info@grandhotel.com</p>
+                    </div>
+                    
+                    <div style="margin-bottom: 2rem;">
+                        <h2 style="color: #333; border-bottom: 1px solid #ccc; padding-bottom: 0.5rem;">Guest Bill</h2>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem;">
+                            <div>
+                                <h3>Guest Information</h3>
+                                <p><strong>Name:</strong> ${data.booking.guest_name}</p>
+                                <p><strong>Email:</strong> ${data.booking.guest_email || 'N/A'}</p>
+                                <p><strong>Phone:</strong> ${data.booking.guest_phone || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <h3>Booking Details</h3>
+                                <p><strong>Room:</strong> ${data.booking.room_name || 'N/A'}</p>
+                                <p><strong>Check-in:</strong> ${checkIn.toLocaleDateString()}</p>
+                                <p><strong>Check-out:</strong> ${checkOut.toLocaleDateString()}</p>
+                                <p><strong>Nights:</strong> ${nights}</p>
+                                <p><strong>Guests:</strong> ${data.booking.guests_count}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 2rem;">
+                        <h3>Room Charges</h3>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+                            <thead>
+                                <tr style="background: #f8f9fa;">
+                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: left;">Description</th>
+                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: center;">Nights</th>
+                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">Rate</th>
+                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style="padding: 0.75rem; border: 1px solid #ddd;">${data.booking.room_name || 'Room'} - ${data.booking.room_type_name || ''}</td>
+                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: center;">${nights}</td>
+                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">$${(roomTotal / nights).toFixed(2)}</td>
+                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">$${roomTotal.toFixed(2)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    ${expensesHtml ? `
+                    <div style="margin-bottom: 2rem;">
+                        <h3>Additional Charges</h3>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+                            <thead>
+                                <tr style="background: #f8f9fa;">
+                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: left;">Description</th>
+                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: center;">Qty</th>
+                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">Rate</th>
+                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${expensesHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                    ` : ''}
+                    
+                    <div style="border-top: 2px solid #333; padding-top: 1rem; margin-top: 2rem;">
+                        <table style="width: 100%; font-size: 1.1rem;">
+                            <tr>
+                                <td style="text-align: right; padding: 0.5rem;"><strong>Room Total:</strong></td>
+                                <td style="text-align: right; padding: 0.5rem; width: 120px;"><strong>$${roomTotal.toFixed(2)}</strong></td>
+                            </tr>
+                            ${expensesTotal > 0 ? `
+                            <tr>
+                                <td style="text-align: right; padding: 0.5rem;"><strong>Additional Charges:</strong></td>
+                                <td style="text-align: right; padding: 0.5rem;"><strong>$${expensesTotal.toFixed(2)}</strong></td>
+                            </tr>
+                            ` : ''}
+                            <tr style="border-top: 1px solid #333; font-size: 1.3rem; color: #333;">
+                                <td style="text-align: right; padding: 1rem;"><strong>TOTAL AMOUNT:</strong></td>
+                                <td style="text-align: right; padding: 1rem;"><strong>$${grandTotal.toFixed(2)}</strong></td>
+                            </tr>
+                        </table>
+                    </div>
+                    
+                    <div style="text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ccc; color: #666;">
+                        <p>Thank you for staying with us!</p>
+                        <p style="font-size: 0.9rem;">Bill generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
+                    </div>
+                </div>
+            `;
         }
 
         // Close modal when clicking outside
