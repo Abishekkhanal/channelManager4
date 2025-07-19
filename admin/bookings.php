@@ -396,27 +396,91 @@ try {
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
         }
 
+        .table-responsive {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .table-responsive::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .table-responsive::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .table-responsive::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .table-responsive::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
+
+        /* Add scroll indicator shadow */
+        .table-responsive::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 20px;
+            height: 100%;
+            background: linear-gradient(to left, rgba(255,255,255,0.8), transparent);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .table-responsive.scrollable::after {
+            opacity: 1;
+        }
+
         .table {
             width: 100%;
             border-collapse: collapse;
+            min-width: 1200px; /* Ensure minimum width for proper column display */
         }
 
         .table th,
         .table td {
-            padding: 1rem;
+            padding: 0.75rem 0.5rem;
             text-align: left;
             border-bottom: 1px solid #eee;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .table th {
             background: #f8f9fa;
             font-weight: bold;
             color: #2c3e50;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
 
         .table tr:hover {
             background: #f8f9fa;
         }
+
+        /* Column width optimization */
+        .table th:nth-child(1), .table td:nth-child(1) { min-width: 150px; max-width: 200px; } /* Guest Name */
+        .table th:nth-child(2), .table td:nth-child(2) { min-width: 120px; max-width: 150px; } /* Room */
+        .table th:nth-child(3), .table td:nth-child(3) { min-width: 100px; max-width: 120px; } /* Check-in */
+        .table th:nth-child(4), .table td:nth-child(4) { min-width: 100px; max-width: 120px; } /* Check-out */
+        .table th:nth-child(5), .table td:nth-child(5) { min-width: 60px; max-width: 80px; text-align: center; } /* Guests */
+        .table th:nth-child(6), .table td:nth-child(6) { min-width: 100px; max-width: 120px; text-align: right; } /* Room Amount */
+        .table th:nth-child(7), .table td:nth-child(7) { min-width: 80px; max-width: 100px; text-align: right; } /* Expenses */
+        .table th:nth-child(8), .table td:nth-child(8) { min-width: 100px; max-width: 120px; text-align: right; } /* Total */
+        .table th:nth-child(9), .table td:nth-child(9) { min-width: 100px; max-width: 120px; } /* Source */
+        .table th:nth-child(10), .table td:nth-child(10) { min-width: 100px; max-width: 120px; } /* Status */
+        .table th:nth-child(11), .table td:nth-child(11) { min-width: 180px; white-space: normal; } /* Actions */
 
         .status-badge {
             padding: 0.25rem 0.75rem;
@@ -443,7 +507,15 @@ try {
 
         .booking-actions {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.25rem;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+        }
+
+        .booking-actions .btn-sm {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.4rem;
+            min-width: auto;
         }
 
         .modal {
@@ -711,13 +783,37 @@ try {
                 grid-template-columns: 1fr;
             }
             
-            .table-responsive {
-                overflow-x: auto;
+            .container {
+                padding: 1rem 10px;
+            }
+            
+            .page-title {
+                font-size: 1.5rem;
+                margin-bottom: 1rem;
             }
             
             .booking-actions {
                 flex-direction: column;
+                gap: 0.2rem;
             }
+            
+            .booking-actions .btn-sm {
+                font-size: 0.6rem;
+                padding: 0.15rem 0.3rem;
+                text-align: center;
+            }
+            
+            /* Make table more compact on mobile */
+            .table th,
+            .table td {
+                padding: 0.5rem 0.25rem;
+                font-size: 0.8rem;
+            }
+            
+            /* Adjust column widths for mobile */
+            .table th:nth-child(1), .table td:nth-child(1) { min-width: 120px; } /* Guest Name */
+            .table th:nth-child(2), .table td:nth-child(2) { min-width: 100px; } /* Room */
+            .table th:nth-child(11), .table td:nth-child(11) { min-width: 140px; } /* Actions */
         }
     </style>
 </head>
@@ -884,6 +980,9 @@ try {
 
         <!-- Bookings Table -->
         <div class="bookings-table">
+            <div class="scroll-notice" id="scrollNotice" style="display: none; background: #e7f3ff; padding: 0.5rem; border-radius: 5px 5px 0 0; text-align: center; font-size: 0.9rem; color: #0066cc;">
+                <i>💡 Scroll horizontally to view all columns</i>
+            </div>
             <div class="table-responsive">
                 <table class="table">
                     <thead>
@@ -1314,8 +1413,42 @@ try {
             }
         }
 
+        // Table responsiveness and scroll handling
+        function initializeTableResponsiveness() {
+            const tableContainer = document.querySelector('.table-responsive');
+            const table = document.querySelector('.table');
+            
+            if (tableContainer && table) {
+                // Check if table needs horizontal scrolling
+                function checkScrollable() {
+                    const scrollNotice = document.getElementById('scrollNotice');
+                    if (table.scrollWidth > tableContainer.clientWidth) {
+                        tableContainer.classList.add('scrollable');
+                        if (scrollNotice) scrollNotice.style.display = 'block';
+                    } else {
+                        tableContainer.classList.remove('scrollable');
+                        if (scrollNotice) scrollNotice.style.display = 'none';
+                    }
+                }
+                
+                // Initial check
+                checkScrollable();
+                
+                // Check on window resize
+                window.addEventListener('resize', checkScrollable);
+                
+                // Add scroll event for better UX
+                tableContainer.addEventListener('scroll', function() {
+                    const isScrolled = this.scrollLeft > 0;
+                    this.classList.toggle('is-scrolled', isScrolled);
+                });
+            }
+        }
+
         // Add validation for walk-in booking form
         document.addEventListener('DOMContentLoaded', function() {
+            // Initialize table responsiveness
+            initializeTableResponsiveness();
             const checkInInput = document.getElementById('check_in');
             const checkOutInput = document.getElementById('check_out');
             
