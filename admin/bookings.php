@@ -20,14 +20,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo = getConnection();
             
-            // Get room price
+            // Get room price and validate room exists
             $stmt = $pdo->prepare("SELECT price_per_night FROM rooms WHERE id = ?");
             $stmt->execute([$room_id]);
-            $room_price = $stmt->fetch(PDO::FETCH_ASSOC)['price_per_night'];
+            $room_data = $stmt->fetch(PDO::FETCH_ASSOC);
             
-            // Calculate total amount
+            if (!$room_data) {
+                throw new Exception("Selected room not found");
+            }
+            
+            $room_price = $room_data['price_per_night'];
+            
+            // Validate dates
             $check_in_date = new DateTime($check_in);
             $check_out_date = new DateTime($check_out);
+            
+            if ($check_out_date <= $check_in_date) {
+                throw new Exception("Check-out date must be after check-in date");
+            }
+            
+            // Check room availability
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM bookings WHERE room_id = ? AND status != 'cancelled' AND ((check_in <= ? AND check_out > ?) OR (check_in < ? AND check_out >= ?))");
+            $stmt->execute([$room_id, $check_in, $check_in, $check_out, $check_out]);
+            $conflicts = $stmt->fetchColumn();
+            
+            if ($conflicts > 0) {
+                throw new Exception("Room is not available for the selected dates");
+            }
+            
+            // Calculate total amount (dates already validated above)
             $nights = $check_in_date->diff($check_out_date)->days;
             $total_amount = $room_price * $nights;
             
@@ -38,6 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success_message = "Walk-in booking created successfully!";
         } catch(PDOException $e) {
             $error_message = "Error creating walk-in booking: " . $e->getMessage();
+        } catch(Exception $e) {
+            $error_message = $e->getMessage();
         }
     }
     
@@ -1002,7 +1025,7 @@ try {
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="amount">Amount ($)</label>
+                            <label for="amount">Amount (₹)</label>
                             <input type="number" id="amount" name="amount" step="0.01" min="0" required>
                         </div>
                         <div class="form-group">
@@ -1059,7 +1082,7 @@ try {
                         <p><strong>Check-in:</strong> ${new Date(booking.check_in).toLocaleDateString()}</p>
                         <p><strong>Check-out:</strong> ${new Date(booking.check_out).toLocaleDateString()}</p>
                         <p><strong>Guests:</strong> ${booking.guests_count}</p>
-                        <p><strong>Total Amount:</strong> ${booking.total_amount ? '$' + parseFloat(booking.total_amount).toFixed(2) : 'N/A'}</p>
+                        <p><strong>Total Amount:</strong> ${booking.total_amount ? '₹' + parseFloat(booking.total_amount).toFixed(2) : 'N/A'}</p>
                         <p><strong>Source:</strong> ${booking.booking_source}</p>
                         <p><strong>Status:</strong> ${booking.status}</p>
                         <p><strong>Created:</strong> ${new Date(booking.created_at).toLocaleString()}</p>
@@ -1095,10 +1118,10 @@ try {
             if (category) {
                 const categoryItems = expenseItems.filter(item => item.category === category);
                 categoryItems.forEach(item => {
-                    const option = document.createElement('option');
-                    option.value = JSON.stringify({description: item.item_name, amount: item.price});
-                    option.textContent = `${item.item_name} - $${parseFloat(item.price).toFixed(2)}`;
-                    quickSelect.appendChild(option);
+                                    const option = document.createElement('option');
+                option.value = JSON.stringify({description: item.item_name, amount: item.price});
+                option.textContent = `${item.item_name} - ₹${parseFloat(item.price).toFixed(2)}`;
+                quickSelect.appendChild(option);
                 });
             }
         }
@@ -1129,8 +1152,8 @@ try {
                                 <td>${expense.expense_type.charAt(0).toUpperCase() + expense.expense_type.slice(1)}</td>
                                 <td>${expense.description}</td>
                                 <td>${expense.quantity}</td>
-                                <td>$${parseFloat(expense.amount).toFixed(2)}</td>
-                                <td>$${total.toFixed(2)}</td>
+                                <td>₹${parseFloat(expense.amount).toFixed(2)}</td>
+                                <td>₹${total.toFixed(2)}</td>
                                 <td>
                                     <form method="POST" style="display: inline;" onsubmit="return confirm('Delete this expense?')">
                                         <input type="hidden" name="expense_id" value="${expense.id}">
@@ -1178,8 +1201,8 @@ try {
                         <tr>
                             <td>${expense.description}</td>
                             <td>${expense.quantity}</td>
-                            <td>$${parseFloat(expense.amount).toFixed(2)}</td>
-                            <td>$${lineTotal.toFixed(2)}</td>
+                            <td>₹${parseFloat(expense.amount).toFixed(2)}</td>
+                            <td>₹${lineTotal.toFixed(2)}</td>
                         </tr>
                     `;
                 });
@@ -1231,8 +1254,8 @@ try {
                                 <tr>
                                     <td style="padding: 0.75rem; border: 1px solid #ddd;">${data.booking.room_name || 'Room'} - ${data.booking.room_type_name || ''}</td>
                                     <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: center;">${nights}</td>
-                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">$${(roomTotal / nights).toFixed(2)}</td>
-                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">$${roomTotal.toFixed(2)}</td>
+                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">₹${(roomTotal / nights).toFixed(2)}</td>
+                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">₹${roomTotal.toFixed(2)}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1261,17 +1284,17 @@ try {
                         <table style="width: 100%; font-size: 1.1rem;">
                             <tr>
                                 <td style="text-align: right; padding: 0.5rem;"><strong>Room Total:</strong></td>
-                                <td style="text-align: right; padding: 0.5rem; width: 120px;"><strong>$${roomTotal.toFixed(2)}</strong></td>
+                                <td style="text-align: right; padding: 0.5rem; width: 120px;"><strong>₹${roomTotal.toFixed(2)}</strong></td>
                             </tr>
                             ${expensesTotal > 0 ? `
                             <tr>
                                 <td style="text-align: right; padding: 0.5rem;"><strong>Additional Charges:</strong></td>
-                                <td style="text-align: right; padding: 0.5rem;"><strong>$${expensesTotal.toFixed(2)}</strong></td>
+                                <td style="text-align: right; padding: 0.5rem;"><strong>₹${expensesTotal.toFixed(2)}</strong></td>
                             </tr>
                             ` : ''}
                             <tr style="border-top: 1px solid #333; font-size: 1.3rem; color: #333;">
                                 <td style="text-align: right; padding: 1rem;"><strong>TOTAL AMOUNT:</strong></td>
-                                <td style="text-align: right; padding: 1rem;"><strong>$${grandTotal.toFixed(2)}</strong></td>
+                                <td style="text-align: right; padding: 1rem;"><strong>₹${grandTotal.toFixed(2)}</strong></td>
                             </tr>
                         </table>
                     </div>
@@ -1290,6 +1313,51 @@ try {
                 event.target.style.display = 'none';
             }
         }
+
+        // Add validation for walk-in booking form
+        document.addEventListener('DOMContentLoaded', function() {
+            const checkInInput = document.getElementById('check_in');
+            const checkOutInput = document.getElementById('check_out');
+            
+            if (checkInInput && checkOutInput) {
+                // Update checkout min date when check-in changes
+                checkInInput.addEventListener('change', function() {
+                    const checkInDate = new Date(this.value);
+                    checkInDate.setDate(checkInDate.getDate() + 1);
+                    const minCheckOut = checkInDate.toISOString().split('T')[0];
+                    checkOutInput.min = minCheckOut;
+                    
+                    // Clear checkout if it's now invalid
+                    if (checkOutInput.value && checkOutInput.value <= this.value) {
+                        checkOutInput.value = minCheckOut;
+                    }
+                });
+                
+                // Validate form on submit
+                const walkInForm = document.querySelector('.walk-in-form');
+                if (walkInForm) {
+                    walkInForm.addEventListener('submit', function(e) {
+                        const checkIn = new Date(checkInInput.value);
+                        const checkOut = new Date(checkOutInput.value);
+                        
+                        if (checkOut <= checkIn) {
+                            e.preventDefault();
+                            alert('Check-out date must be after check-in date');
+                            return false;
+                        }
+                        
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        
+                        if (checkIn < today) {
+                            e.preventDefault();
+                            alert('Check-in date cannot be in the past');
+                            return false;
+                        }
+                    });
+                }
+            }
+        });
     </script>
 </body>
 </html>
