@@ -166,11 +166,15 @@ try {
     $all_rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
 } catch(PDOException $e) {
+    $error_message = "Database error: " . $e->getMessage();
     $bookings = [];
     $room_types = [];
     $booking_sources = [];
     $expense_items = [];
     $all_rooms = [];
+    
+    // Log the error for debugging
+    error_log("Bookings.php database error: " . $e->getMessage());
 }
 ?>
 
@@ -767,13 +771,21 @@ try {
                         <label for="room_id">Room *</label>
                         <select id="room_id" name="room_id" required class="form-control">
                             <option value="">Select a Room</option>
-                            <?php foreach ($all_rooms as $room): ?>
-                                <option value="<?php echo $room['id']; ?>">
-                                    <?php echo htmlspecialchars($room['room_name']); ?> 
-                                    (<?php echo htmlspecialchars($room['room_type_name']); ?>) 
-                                    - <?php echo formatCurrency($room['price_per_night']); ?>/night
+                            <?php if (empty($all_rooms)): ?>
+                                <option value="" disabled>No rooms available
+                                    <?php if (!empty($error_message)): ?>
+                                        (Database error)
+                                    <?php endif; ?>
                                 </option>
-                            <?php endforeach; ?>
+                            <?php else: ?>
+                                <?php foreach ($all_rooms as $room): ?>
+                                    <option value="<?php echo $room['id']; ?>">
+                                        <?php echo htmlspecialchars($room['room_name']); ?> 
+                                        (<?php echo htmlspecialchars($room['room_type_name']); ?>) 
+                                        - <?php echo formatCurrency($room['price_per_night']); ?>/night
+                                    </option>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </select>
                     </div>
                     <div class="form-group">
@@ -871,6 +883,9 @@ try {
                             <tr>
                                 <td colspan="11" style="text-align: center; padding: 2rem; color: #666;">
                                     No bookings found.
+                                    <?php if (!empty($error_message)): ?>
+                                        <br><small style="color: red;">Error: <?php echo htmlspecialchars($error_message); ?></small>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php else: ?>
