@@ -7,6 +7,40 @@ $error_message = '';
 
 // Handle different POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Handle walk-in booking creation
+    if (isset($_POST['create_walk_in'])) {
+        $guest_name = sanitizeInput($_POST['guest_name']);
+        $guest_email = sanitizeInput($_POST['guest_email']);
+        $guest_phone = sanitizeInput($_POST['guest_phone']);
+        $room_id = intval($_POST['room_id']);
+        $check_in = sanitizeInput($_POST['check_in']);
+        $check_out = sanitizeInput($_POST['check_out']);
+        $guests_count = intval($_POST['guests_count']);
+        
+        try {
+            $pdo = getConnection();
+            
+            // Get room price
+            $stmt = $pdo->prepare("SELECT price_per_night FROM rooms WHERE id = ?");
+            $stmt->execute([$room_id]);
+            $room_price = $stmt->fetch(PDO::FETCH_ASSOC)['price_per_night'];
+            
+            // Calculate total amount
+            $check_in_date = new DateTime($check_in);
+            $check_out_date = new DateTime($check_out);
+            $nights = $check_in_date->diff($check_out_date)->days;
+            $total_amount = $room_price * $nights;
+            
+            // Create walk-in booking
+            $stmt = $pdo->prepare("INSERT INTO bookings (guest_name, guest_email, guest_phone, room_id, check_in, check_out, guests_count, total_amount, booking_source, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'walk_in', 'confirmed')");
+            $stmt->execute([$guest_name, $guest_email, $guest_phone, $room_id, $check_in, $check_out, $guests_count, $total_amount]);
+            
+            $success_message = "Walk-in booking created successfully!";
+        } catch(PDOException $e) {
+            $error_message = "Error creating walk-in booking: " . $e->getMessage();
+        }
+    }
+    
     // Handle status updates
     if (isset($_POST['update_status'])) {
         $booking_id = intval($_POST['booking_id']);
@@ -127,11 +161,16 @@ try {
     $stmt = $pdo->query("SELECT * FROM expense_items WHERE is_active = 1 ORDER BY category, item_name");
     $expense_items = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
+    // Get all rooms for walk-in booking
+    $stmt = $pdo->query("SELECT r.*, rt.name as room_type_name FROM rooms r LEFT JOIN room_types rt ON r.room_type_id = rt.id ORDER BY r.room_name");
+    $all_rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
 } catch(PDOException $e) {
     $bookings = [];
     $room_types = [];
     $booking_sources = [];
     $expense_items = [];
+    $all_rooms = [];
 }
 ?>
 
@@ -545,6 +584,39 @@ try {
             margin-bottom: 2rem;
         }
 
+        /* Walk-in Booking Styles */
+        .walk-in-section {
+            background: white;
+            border-radius: 10px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-left: 5px solid #f39c12;
+        }
+
+        .walk-in-form .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-start;
+            margin-top: 2rem;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
         .expenses-list {
             max-height: 300px;
             overflow-y: auto;
@@ -670,6 +742,60 @@ try {
                 <div class="stat-label">Cancelled</div>
             </div>
         </div>
+
+        <!-- Walk-in Booking Section -->
+        <?php if (isset($_GET['action']) && $_GET['action'] === 'walk_in'): ?>
+        <div class="walk-in-section">
+            <h2 class="section-title">Create Walk-in Booking</h2>
+            <form method="POST" class="walk-in-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="guest_name">Guest Name *</label>
+                        <input type="text" id="guest_name" name="guest_name" required class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="guest_email">Email</label>
+                        <input type="email" id="guest_email" name="guest_email" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="guest_phone">Phone *</label>
+                        <input type="tel" id="guest_phone" name="guest_phone" required class="form-control">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="room_id">Room *</label>
+                        <select id="room_id" name="room_id" required class="form-control">
+                            <option value="">Select a Room</option>
+                            <?php foreach ($all_rooms as $room): ?>
+                                <option value="<?php echo $room['id']; ?>">
+                                    <?php echo htmlspecialchars($room['room_name']); ?> 
+                                    (<?php echo htmlspecialchars($room['room_type_name']); ?>) 
+                                    - <?php echo formatCurrency($room['price_per_night']); ?>/night
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="check_in">Check-in Date *</label>
+                        <input type="date" id="check_in" name="check_in" required class="form-control" min="<?php echo date('Y-m-d'); ?>">
+                    </div>
+                    <div class="form-group">
+                        <label for="check_out">Check-out Date *</label>
+                        <input type="date" id="check_out" name="check_out" required class="form-control" min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>">
+                    </div>
+                    <div class="form-group">
+                        <label for="guests_count">Number of Guests *</label>
+                        <input type="number" id="guests_count" name="guests_count" required class="form-control" min="1" max="10" value="1">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" name="create_walk_in" class="btn btn-success">Create Walk-in Booking</button>
+                    <a href="bookings.php" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+        <?php endif; ?>
 
         <!-- Filters -->
         <div class="filters">
@@ -1017,22 +1143,8 @@ try {
                 return;
             }
             
-            try {
-                const response = await fetch(`get_bill.php?booking_id=${bookingId}`);
-                const billData = await response.json();
-                
-                if (billData.error) {
-                    alert('Error loading bill: ' + billData.error);
-                    return;
-                }
-                
-                const billHtml = generateBillHTML(billData);
-                document.getElementById('billContent').innerHTML = billHtml;
-                openModal('printBillModal');
-            } catch (error) {
-                console.error('Error loading bill:', error);
-                alert('Error loading bill data.');
-            }
+            // Open the professional invoice page in a new window
+            window.open(`print_bill.php?booking_id=${bookingId}`, '_blank');
         }
 
         function generateBillHTML(data) {
