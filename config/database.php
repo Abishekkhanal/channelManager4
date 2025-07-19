@@ -39,7 +39,7 @@ function sanitizeInput($data) {
 
 // Helper function to format currency
 function formatCurrency($amount) {
-    return '$' . number_format($amount, 2);
+    return '₹' . number_format($amount, 2);
 }
 
 // Helper function to format date

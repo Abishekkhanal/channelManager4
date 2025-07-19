@@ -35,6 +35,39 @@ try {
     $stmt = $pdo->query("SELECT COUNT(*) as total FROM inquiries WHERE status = 'new'");
     $new_inquiries = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
+    // Recent inquiries
+    $stmt = $pdo->query("SELECT * FROM inquiries ORDER BY created_at DESC LIMIT 5");
+    $recent_inquiries = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Enhanced occupancy rate calculations
+    // Daily occupancy (today)
+    $stmt = $pdo->query("SELECT COUNT(*) as occupied FROM bookings WHERE CURDATE() BETWEEN check_in AND check_out AND status = 'confirmed'");
+    $daily_occupied = $stmt->fetch(PDO::FETCH_ASSOC)['occupied'];
+    $daily_occupancy = $total_rooms > 0 ? ($daily_occupied / $total_rooms) * 100 : 0;
+    
+    // Monthly occupancy (current month)
+    $stmt = $pdo->query("SELECT COUNT(DISTINCT DATE(ra.date)) as booked_days 
+                        FROM room_availability ra 
+                        JOIN bookings b ON ra.room_id = b.room_id 
+                        WHERE MONTH(ra.date) = MONTH(CURDATE()) 
+                        AND YEAR(ra.date) = YEAR(CURDATE()) 
+                        AND ra.date BETWEEN b.check_in AND b.check_out 
+                        AND b.status = 'confirmed'");
+    $monthly_booked_days = $stmt->fetch(PDO::FETCH_ASSOC)['booked_days'];
+    $days_in_month = date('t');
+    $monthly_occupancy = ($monthly_booked_days / ($total_rooms * $days_in_month)) * 100;
+    
+    // Yearly occupancy (current year)
+    $stmt = $pdo->query("SELECT COUNT(DISTINCT DATE(ra.date)) as booked_days 
+                        FROM room_availability ra 
+                        JOIN bookings b ON ra.room_id = b.room_id 
+                        WHERE YEAR(ra.date) = YEAR(CURDATE()) 
+                        AND ra.date BETWEEN b.check_in AND b.check_out 
+                        AND b.status = 'confirmed'");
+    $yearly_booked_days = $stmt->fetch(PDO::FETCH_ASSOC)['booked_days'];
+    $days_in_year = date('z') + 1; // Current day of year
+    $yearly_occupancy = ($yearly_booked_days / ($total_rooms * $days_in_year)) * 100;
+    
 } catch(PDOException $e) {
     $total_bookings = 0;
     $upcoming_bookings = 0;
@@ -42,6 +75,10 @@ try {
     $occupancy_rate = 0;
     $recent_bookings = [];
     $new_inquiries = 0;
+    $recent_inquiries = [];
+    $daily_occupancy = 0;
+    $monthly_occupancy = 0;
+    $yearly_occupancy = 0;
 }
 ?>
 
@@ -157,13 +194,65 @@ try {
         .stat-card.occupancy .stat-value { color: #e74c3c; }
         .stat-card.inquiries .stat-value { color: #f39c12; }
 
+        /* Occupancy Section */
+        .occupancy-section {
+            background: white;
+            border-radius: 10px;
+            padding: 2rem;
+            margin: 2rem 0;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .occupancy-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .occupancy-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: transform 0.3s;
+        }
+
+        .occupancy-card:hover {
+            transform: translateY(-3px);
+        }
+
+        .occupancy-card.daily {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .occupancy-card.monthly {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .occupancy-card.yearly {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .occupancy-value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+
+        .occupancy-label {
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+
         .dashboard-content {
             display: grid;
-            grid-template-columns: 2fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 2rem;
         }
 
-        .recent-bookings {
+        .recent-bookings, .recent-inquiries {
             background: white;
             border-radius: 10px;
             padding: 2rem;
@@ -211,6 +300,50 @@ try {
         .status-pending { background: #fff3cd; color: #856404; }
         .status-confirmed { background: #d4edda; color: #155724; }
         .status-cancelled { background: #f8d7da; color: #721c24; }
+        .status-new { background: #cce5ff; color: #004085; }
+        .status-responded { background: #fff3cd; color: #856404; }
+        .status-closed { background: #d4edda; color: #155724; }
+
+        /* Inquiry Items */
+        .inquiry-item {
+            padding: 1rem 0;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .inquiry-item:last-child {
+            border-bottom: none;
+        }
+
+        .inquiry-info h4 {
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+        }
+
+        .inquiry-info p {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .inquiry-message {
+            font-style: italic;
+            background: #f8f9fa;
+            padding: 0.5rem;
+            border-radius: 5px;
+            margin-top: 0.5rem;
+        }
+
+        .inquiry-status {
+            padding: 0.25rem 0.75rem;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
 
         .quick-actions {
             background: white;
@@ -239,6 +372,9 @@ try {
         .action-btn.rooms { background: #27ae60; }
         .action-btn.rooms:hover { background: #229954; }
 
+        .action-btn.walk-in { background: #f39c12; }
+        .action-btn.walk-in:hover { background: #e67e22; }
+
         .action-btn.settings { background: #e74c3c; }
         .action-btn.settings:hover { background: #c0392b; }
 
@@ -261,6 +397,53 @@ try {
         .btn-sm {
             padding: 0.25rem 0.5rem;
             font-size: 0.8rem;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .occupancy-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .dashboard-content {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .admin-menu {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .inquiry-item, .booking-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .inquiry-status, .booking-status {
+                margin-top: 0.5rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stat-value {
+                font-size: 2rem;
+            }
+
+            .occupancy-value {
+                font-size: 1.5rem;
+            }
         }
 
         @media (max-width: 768px) {
@@ -312,13 +495,28 @@ try {
                 <div class="stat-value"><?php echo formatCurrency($total_revenue); ?></div>
                 <div class="stat-label">Total Revenue</div>
             </div>
-            <div class="stat-card occupancy">
-                <div class="stat-value"><?php echo number_format($occupancy_rate, 1); ?>%</div>
-                <div class="stat-label">Occupancy Rate</div>
-            </div>
             <div class="stat-card inquiries">
                 <div class="stat-value"><?php echo $new_inquiries; ?></div>
                 <div class="stat-label">New Inquiries</div>
+            </div>
+        </div>
+
+        <!-- Enhanced Occupancy Rates -->
+        <div class="occupancy-section">
+            <h2 class="section-title">Occupancy Rates</h2>
+            <div class="occupancy-grid">
+                <div class="occupancy-card daily">
+                    <div class="occupancy-value"><?php echo number_format($daily_occupancy, 1); ?>%</div>
+                    <div class="occupancy-label">Today</div>
+                </div>
+                <div class="occupancy-card monthly">
+                    <div class="occupancy-value"><?php echo number_format($monthly_occupancy, 1); ?>%</div>
+                    <div class="occupancy-label">This Month</div>
+                </div>
+                <div class="occupancy-card yearly">
+                    <div class="occupancy-value"><?php echo number_format($yearly_occupancy, 1); ?>%</div>
+                    <div class="occupancy-label">This Year</div>
+                </div>
             </div>
         </div>
 
@@ -348,10 +546,41 @@ try {
                 </div>
             </div>
 
+            <div class="recent-inquiries">
+                <h2 class="section-title">Recent Inquiries</h2>
+                <?php if (empty($recent_inquiries)): ?>
+                    <p>No recent inquiries found.</p>
+                <?php else: ?>
+                    <?php foreach ($recent_inquiries as $inquiry): ?>
+                        <div class="inquiry-item">
+                            <div class="inquiry-info">
+                                <h4><?php echo htmlspecialchars($inquiry['name']); ?></h4>
+                                <p>
+                                    <strong>Email:</strong> <?php echo htmlspecialchars($inquiry['email']); ?><br>
+                                    <strong>Dates:</strong> <?php echo formatDate($inquiry['check_in']); ?> - <?php echo formatDate($inquiry['check_out']); ?><br>
+                                    <strong>Guests:</strong> <?php echo $inquiry['guests_count']; ?> • 
+                                    <strong>Room Type:</strong> <?php echo htmlspecialchars($inquiry['room_type'] ?? 'Any'); ?>
+                                </p>
+                                <?php if ($inquiry['message']): ?>
+                                    <p class="inquiry-message"><?php echo htmlspecialchars(substr($inquiry['message'], 0, 100)); ?>...</p>
+                                <?php endif; ?>
+                            </div>
+                            <div class="inquiry-status status-<?php echo $inquiry['status']; ?>">
+                                <?php echo ucfirst($inquiry['status']); ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+                <div style="text-align: center; margin-top: 1rem;">
+                    <a href="inquiries.php" class="btn">View All Inquiries</a>
+                </div>
+            </div>
+
             <div class="quick-actions">
                 <h2 class="section-title">Quick Actions</h2>
                 <a href="rooms.php" class="action-btn rooms">Manage Rooms</a>
                 <a href="bookings.php" class="action-btn">View Bookings</a>
+                <a href="bookings.php?action=walk_in" class="action-btn walk-in">Walk-in Booking</a>
                 <a href="availability.php" class="action-btn">Update Availability</a>
                 <a href="settings.php" class="action-btn settings">OTA Settings</a>
                 <a href="sync_ota.php" class="action-btn" style="background: #9b59b6;">Sync to OTA</a>
