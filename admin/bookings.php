@@ -1064,9 +1064,8 @@ try {
                                             <button class="btn btn-sm" onclick="viewBooking(<?php echo $booking['id']; ?>)">View</button>
                                             <button class="btn btn-warning btn-sm" onclick="updateStatus(<?php echo $booking['id']; ?>, '<?php echo $booking['status']; ?>')">Status</button>
                                             <button class="btn btn-success btn-sm" onclick="manageExpenses(<?php echo $booking['id']; ?>)">Expenses</button>
-                                            <button class="btn btn-info btn-sm" onclick="printBill(<?php echo $booking['id']; ?>)">Print Bill</button>
                                             <div class="dropdown" style="display: inline-block; position: relative;">
-                                                <button class="btn btn-secondary btn-sm" onclick="toggleThermalMenu(<?php echo $booking['id']; ?>)">🧾 Thermal ▼</button>
+                                                <button class="btn btn-info btn-sm" onclick="toggleThermalMenu(<?php echo $booking['id']; ?>)">🧾 Print Bill ▼</button>
                                                 <div id="thermal-menu-<?php echo $booking['id']; ?>" class="thermal-menu" style="display: none; position: absolute; top: 100%; left: 0; background: white; border: 1px solid #ccc; border-radius: 3px; z-index: 1000; min-width: 120px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
                                                     <a href="#" onclick="event.preventDefault(); printThermal(<?php echo $booking['id']; ?>, '80mm'); return false;" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem; border-bottom: 1px solid #eee;">📄 80mm Paper</a>
                                                     <a href="#" onclick="event.preventDefault(); printThermal(<?php echo $booking['id']; ?>, '58mm'); return false;" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem;">📄 58mm Paper</a>
@@ -1171,17 +1170,7 @@ try {
         </div>
     </div>
 
-    <!-- Print Bill Modal -->
-    <div id="printBillModal" class="modal">
-        <div class="modal-content" style="max-width: 900px;">
-            <span class="close" onclick="closeModal('printBillModal')">&times;</span>
-            <div class="bill-header">
-                <button onclick="printBill()" class="btn btn-primary" style="float: right; margin-bottom: 1rem;">Print Bill</button>
-                <h2>Guest Bill</h2>
-            </div>
-            <div id="billContent"></div>
-        </div>
-    </div>
+    <!-- Print Bill Modal removed - now using thermal printing only -->
 
     <script>
         const bookings = <?php echo json_encode($bookings); ?>;
@@ -1302,30 +1291,7 @@ try {
             }
         }
 
-        async function printBill(bookingId) {
-            console.log('printBill called with bookingId:', bookingId);
-            
-            if (typeof bookingId === 'undefined') {
-                // If called from print button inside modal, print the current content
-                window.print();
-                return;
-            }
-            
-            try {
-                // Open the professional invoice page in a new window
-                const printWindow = window.open(`print_bill.php?booking_id=${bookingId}`, '_blank');
-                
-                if (!printWindow) {
-                    alert('Pop-up was blocked by your browser. Please allow pop-ups for this site and try again.');
-                    return false;
-                }
-                
-                console.log('Print bill window opened successfully');
-            } catch (error) {
-                console.error('Error opening print bill window:', error);
-                alert('Error opening print window: ' + error.message);
-            }
-        }
+        // Regular print bill function removed - now using thermal printing only
 
         function printThermal(bookingId, paperSize = '80mm') {
             console.log('printThermal called with bookingId:', bookingId, 'paperSize:', paperSize);
@@ -1388,127 +1354,7 @@ try {
             }
         });
 
-        function generateBillHTML(data) {
-            const checkIn = new Date(data.booking.check_in);
-            const checkOut = new Date(data.booking.check_out);
-            const nights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
-            
-            let expensesHtml = '';
-            let expensesTotal = 0;
-            
-            if (data.expenses && data.expenses.length > 0) {
-                data.expenses.forEach(expense => {
-                    const lineTotal = parseFloat(expense.amount) * parseInt(expense.quantity);
-                    expensesTotal += lineTotal;
-                    expensesHtml += `
-                        <tr>
-                            <td>${expense.description}</td>
-                            <td>${expense.quantity}</td>
-                            <td>₹${parseFloat(expense.amount).toFixed(2)}</td>
-                            <td>₹${lineTotal.toFixed(2)}</td>
-                        </tr>
-                    `;
-                });
-            }
-            
-            const roomTotal = parseFloat(data.booking.total_amount) || 0;
-            const grandTotal = roomTotal + expensesTotal;
-            
-            return `
-                <div class="bill-content" style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-                    <div style="text-align: center; margin-bottom: 2rem; border-bottom: 2px solid #333; padding-bottom: 1rem;">
-                        <h1 style="color: #333; margin: 0;">Grand Hotel</h1>
-                        <p style="margin: 0.5rem 0;">123 Hotel Street, City, State 12345</p>
-                        <p style="margin: 0;">Phone: (555) 123-4567 | Email: info@grandhotel.com</p>
-                    </div>
-                    
-                    <div style="margin-bottom: 2rem;">
-                        <h2 style="color: #333; border-bottom: 1px solid #ccc; padding-bottom: 0.5rem;">Guest Bill</h2>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem;">
-                            <div>
-                                <h3>Guest Information</h3>
-                                <p><strong>Name:</strong> ${data.booking.guest_name}</p>
-                                <p><strong>Email:</strong> ${data.booking.guest_email || 'N/A'}</p>
-                                <p><strong>Phone:</strong> ${data.booking.guest_phone || 'N/A'}</p>
-                            </div>
-                            <div>
-                                <h3>Booking Details</h3>
-                                <p><strong>Room:</strong> ${data.booking.room_name || 'N/A'}</p>
-                                <p><strong>Check-in:</strong> ${checkIn.toLocaleDateString()}</p>
-                                <p><strong>Check-out:</strong> ${checkOut.toLocaleDateString()}</p>
-                                <p><strong>Nights:</strong> ${nights}</p>
-                                <p><strong>Guests:</strong> ${data.booking.guests_count}</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div style="margin-bottom: 2rem;">
-                        <h3>Room Charges</h3>
-                        <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
-                            <thead>
-                                <tr style="background: #f8f9fa;">
-                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: left;">Description</th>
-                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: center;">Nights</th>
-                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">Rate</th>
-                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td style="padding: 0.75rem; border: 1px solid #ddd;">${data.booking.room_name || 'Room'} - ${data.booking.room_type_name || ''}</td>
-                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: center;">${nights}</td>
-                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">₹${(roomTotal / nights).toFixed(2)}</td>
-                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">₹${roomTotal.toFixed(2)}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    ${expensesHtml ? `
-                    <div style="margin-bottom: 2rem;">
-                        <h3>Additional Charges</h3>
-                        <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
-                            <thead>
-                                <tr style="background: #f8f9fa;">
-                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: left;">Description</th>
-                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: center;">Qty</th>
-                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">Rate</th>
-                                    <th style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${expensesHtml}
-                            </tbody>
-                        </table>
-                    </div>
-                    ` : ''}
-                    
-                    <div style="border-top: 2px solid #333; padding-top: 1rem; margin-top: 2rem;">
-                        <table style="width: 100%; font-size: 1.1rem;">
-                            <tr>
-                                <td style="text-align: right; padding: 0.5rem;"><strong>Room Total:</strong></td>
-                                <td style="text-align: right; padding: 0.5rem; width: 120px;"><strong>₹${roomTotal.toFixed(2)}</strong></td>
-                            </tr>
-                            ${expensesTotal > 0 ? `
-                            <tr>
-                                <td style="text-align: right; padding: 0.5rem;"><strong>Additional Charges:</strong></td>
-                                <td style="text-align: right; padding: 0.5rem;"><strong>₹${expensesTotal.toFixed(2)}</strong></td>
-                            </tr>
-                            ` : ''}
-                            <tr style="border-top: 1px solid #333; font-size: 1.3rem; color: #333;">
-                                <td style="text-align: right; padding: 1rem;"><strong>TOTAL AMOUNT:</strong></td>
-                                <td style="text-align: right; padding: 1rem;"><strong>₹${grandTotal.toFixed(2)}</strong></td>
-                            </tr>
-                        </table>
-                    </div>
-                    
-                    <div style="text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ccc; color: #666;">
-                        <p>Thank you for staying with us!</p>
-                        <p style="font-size: 0.9rem;">Bill generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
-                    </div>
-                </div>
-            `;
-        }
+        // generateBillHTML function removed - now using thermal printing only
 
         // Close modal when clicking outside
         window.onclick = function(event) {

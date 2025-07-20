@@ -23,14 +23,13 @@ try {
         echo "<h3>Sample Booking Data:</h3>";
         echo "<pre>" . print_r($booking, true) . "</pre>";
         
-        echo "<h3>Test Print Links:</h3>";
-        echo "<p><a href='print_bill.php?booking_id={$booking['id']}' target='_blank'>🖨️ Test Regular Print Bill</a></p>";
+        echo "<h3>Test Thermal Print Links:</h3>";
         echo "<p><a href='thermal_print.php?booking_id={$booking['id']}' target='_blank'>🧾 Test Thermal Print 80mm</a></p>";
         echo "<p><a href='thermal_print_58mm.php?booking_id={$booking['id']}' target='_blank'>🧾 Test Thermal Print 58mm</a></p>";
         
         echo "<h3>JavaScript Test Buttons:</h3>";
-        echo "<button onclick='testPrintBill({$booking['id']})' class='btn'>Test Print Bill JS</button>";
-        echo "<button onclick='testThermalPrint({$booking['id']})' class='btn'>Test Thermal Print JS</button>";
+        echo "<button onclick='testThermalPrint({$booking['id']}, \"80mm\")' class='btn'>Test 80mm Thermal Print</button>";
+        echo "<button onclick='testThermalPrint({$booking['id']}, \"58mm\")' class='btn'>Test 58mm Thermal Print</button>";
     }
     
 } catch(Exception $e) {
@@ -54,27 +53,14 @@ try {
 </style>
 
 <script>
-function testPrintBill(bookingId) {
-    console.log('Testing print bill with booking ID:', bookingId);
+function testThermalPrint(bookingId, paperSize = '80mm') {
+    console.log('Testing thermal print with booking ID:', bookingId, 'Paper size:', paperSize);
     
     try {
-        const printWindow = window.open(`print_bill.php?booking_id=${bookingId}`, '_blank');
-        if (!printWindow) {
-            alert('Pop-up blocked! Please allow pop-ups for this site.');
-            return false;
-        }
-        console.log('Print window opened successfully');
-    } catch (error) {
-        console.error('Error opening print window:', error);
-        alert('Error opening print window: ' + error.message);
-    }
-}
-
-function testThermalPrint(bookingId) {
-    console.log('Testing thermal print with booking ID:', bookingId);
-    
-    try {
-        const thermalWindow = window.open(`thermal_print.php?booking_id=${bookingId}`, '_blank', 'width=400,height=600');
+        const printFile = paperSize === '58mm' ? 'thermal_print_58mm.php' : 'thermal_print.php';
+        const windowWidth = paperSize === '58mm' ? 280 : 400;
+        
+        const thermalWindow = window.open(`${printFile}?booking_id=${bookingId}`, '_blank', `width=${windowWidth},height=600`);
         if (!thermalWindow) {
             alert('Pop-up blocked! Please allow pop-ups for this site.');
             return false;
