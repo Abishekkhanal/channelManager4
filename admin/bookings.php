@@ -518,20 +518,7 @@ try {
             min-width: auto;
         }
 
-        /* Thermal print dropdown styles */
-        .thermal-menu a:hover {
-            background: #f8f9fa !important;
-            color: #007bff !important;
-        }
-
-        .thermal-menu a:first-child {
-            border-radius: 3px 3px 0 0;
-        }
-
-        .thermal-menu a:last-child {
-            border-radius: 0 0 3px 3px;
-            border-bottom: none !important;
-        }
+        /* Thermal dropdown styles removed - now using simple button */
 
         .modal {
             display: none;
@@ -855,11 +842,11 @@ try {
         
 
 
-        <?php if (isset($success_message)): ?>
+        <?php if (!empty($success_message)): ?>
             <div class="alert alert-success"><?php echo $success_message; ?></div>
         <?php endif; ?>
 
-        <?php if (isset($error_message)): ?>
+        <?php if (!empty($error_message)): ?>
             <div class="alert alert-error"><?php echo $error_message; ?></div>
         <?php endif; ?>
 
@@ -997,9 +984,7 @@ try {
 
         <!-- Bookings Table -->
         <div class="bookings-table">
-            <div class="scroll-notice" id="scrollNotice" style="display: none; background: #e7f3ff; padding: 0.5rem; border-radius: 5px 5px 0 0; text-align: center; font-size: 0.9rem; color: #0066cc;">
-                <i>💡 Scroll horizontally to view all columns</i>
-            </div>
+
             <div class="table-responsive">
                 <table class="table">
                     <thead>
@@ -1059,13 +1044,7 @@ try {
                                             <button class="btn btn-sm" onclick="viewBooking(<?php echo $booking['id']; ?>)">View</button>
                                             <button class="btn btn-warning btn-sm" onclick="updateStatus(<?php echo $booking['id']; ?>, '<?php echo $booking['status']; ?>')">Status</button>
                                             <button class="btn btn-success btn-sm" onclick="manageExpenses(<?php echo $booking['id']; ?>)">Expenses</button>
-                                            <div class="dropdown" style="display: inline-block; position: relative;">
-                                                <button class="btn btn-info btn-sm" onclick="toggleThermalMenu(<?php echo $booking['id']; ?>)">🧾 Print Bill ▼</button>
-                                                <div id="thermal-menu-<?php echo $booking['id']; ?>" class="thermal-menu" style="display: none; position: absolute; top: 100%; left: 0; background: white; border: 1px solid #ccc; border-radius: 3px; z-index: 1000; min-width: 120px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
-                                                    <a href="#" onclick="event.preventDefault(); printThermal(<?php echo $booking['id']; ?>, '80mm'); return false;" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem; border-bottom: 1px solid #eee;">📄 80mm Paper</a>
-                                                    <a href="#" onclick="event.preventDefault(); printThermal(<?php echo $booking['id']; ?>, '58mm'); return false;" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem;">📄 58mm Paper</a>
-                                                </div>
-                                            </div>
+                                            <button class="btn btn-info btn-sm" onclick="printThermal(<?php echo $booking['id']; ?>, '80mm')">🧾 Print Bill</button>
                                         </div>
                                     </td>
                                 </tr>
@@ -1291,11 +1270,6 @@ try {
         function printThermal(bookingId, paperSize = '80mm') {
             console.log('printThermal called with bookingId:', bookingId, 'paperSize:', paperSize);
             
-            // Close any open thermal menus
-            document.querySelectorAll('.thermal-menu').forEach(menu => {
-                menu.style.display = 'none';
-            });
-            
             try {
                 // Determine which thermal print file to use
                 const printFile = paperSize === '58mm' ? 'thermal_print_58mm.php' : 'thermal_print.php';
@@ -1327,27 +1301,7 @@ try {
             }
         }
 
-        function toggleThermalMenu(bookingId) {
-            // Close all other thermal menus first
-            document.querySelectorAll('.thermal-menu').forEach(menu => {
-                if (menu.id !== `thermal-menu-${bookingId}`) {
-                    menu.style.display = 'none';
-                }
-            });
-            
-            // Toggle the specific menu
-            const menu = document.getElementById(`thermal-menu-${bookingId}`);
-            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-        }
-
-        // Close thermal menus when clicking outside
-        document.addEventListener('click', function(event) {
-            if (!event.target.closest('.dropdown')) {
-                document.querySelectorAll('.thermal-menu').forEach(menu => {
-                    menu.style.display = 'none';
-                });
-            }
-        });
+        // Thermal menu functions removed - now using simple print button
 
         // generateBillHTML function removed - now using thermal printing only
 
@@ -1366,13 +1320,10 @@ try {
             if (tableContainer && table) {
                 // Check if table needs horizontal scrolling
                 function checkScrollable() {
-                    const scrollNotice = document.getElementById('scrollNotice');
                     if (table.scrollWidth > tableContainer.clientWidth) {
                         tableContainer.classList.add('scrollable');
-                        if (scrollNotice) scrollNotice.style.display = 'block';
                     } else {
                         tableContainer.classList.remove('scrollable');
-                        if (scrollNotice) scrollNotice.style.display = 'none';
                     }
                 }
                 
