@@ -31,7 +31,7 @@ $blog_stmt->close();
 $user_ip = $_SERVER['REMOTE_ADDR'];
 
 // Check if user has already liked this blog
-$like_check_sql = "SELECT id FROM likes WHERE blog_id = ? AND ip_address = ?";
+$like_check_sql = "SELECT id FROM likes WHERE blog_id = ? AND user_ip = ?";
 $like_check_stmt = $conn->prepare($like_check_sql);
 $like_check_stmt->bind_param("is", $blog['id'], $user_ip);
 $like_check_stmt->execute();
@@ -56,10 +56,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_comment'])) {
     $parent_id = isset($_POST['parent_id']) ? (int)$_POST['parent_id'] : 0;
     
     if (!empty($name) && !empty($email) && !empty($comment_text)) {
-        $comment_sql = "INSERT INTO blog_comments (blog_id, name, email, comment, parent_id, ip_address, created_at, status) 
-                        VALUES (?, ?, ?, ?, ?, ?, NOW(), 'approved')";
+        $comment_sql = "INSERT INTO blog_comments (blog_id, name, email, comment, parent_id, created_at, status) 
+                        VALUES (?, ?, ?, ?, ?, NOW(), 'approved')";
         $comment_stmt = $conn->prepare($comment_sql);
-        $comment_stmt->bind_param("isssis", $blog['id'], $name, $email, $comment_text, $parent_id, $user_ip);
+        $comment_stmt->bind_param("isssi", $blog['id'], $name, $email, $comment_text, $parent_id);
         $comment_stmt->execute();
         $comment_stmt->close();
         
