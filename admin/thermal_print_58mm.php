@@ -1,21 +1,6 @@
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
 require_once '../config/database.php';
-
-// Temporarily bypass admin login for testing
-// requireAdminLogin();
-
-// For debugging - check if session exists
-if (function_exists('requireAdminLogin')) {
-    try {
-        requireAdminLogin();
-    } catch (Exception $e) {
-        // If admin login fails, continue anyway for testing
-        error_log("Admin login check failed: " . $e->getMessage());
-    }
-}
+requireAdminLogin();
 
 if (!isset($_GET['booking_id'])) {
     header('Location: bookings.php');

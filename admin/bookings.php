@@ -853,12 +853,7 @@ try {
     <div class="container">
         <h1 class="page-title">Bookings Management</h1>
         
-        <!-- Debug Test Section -->
-        <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 1rem; margin-bottom: 1rem; border-radius: 5px;">
-            <strong>🔧 Debug Test:</strong>
-            <a href="test_print.php" target="_blank" style="margin-left: 1rem; padding: 0.5rem 1rem; background: #007bff; color: white; text-decoration: none; border-radius: 3px;">Test Print Functions</a>
-            <span style="margin-left: 1rem; font-size: 0.9rem; color: #856404;">Use this to test if print functions are working</span>
-        </div>
+
 
         <?php if (isset($success_message)): ?>
             <div class="alert alert-success"><?php echo $success_message; ?></div>
