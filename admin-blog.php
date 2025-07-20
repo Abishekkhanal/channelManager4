@@ -2,9 +2,9 @@
 session_start();
 require_once 'config/database.php';
 
-// Simple admin authentication (you should implement proper authentication)
-if (!isset($_SESSION['admin_logged_in'])) {
-    header('Location: login.php');
+// Use your existing admin authentication
+if (!isset($_SESSION['admin'])) {
+    header('Location: admin_login.php');
     exit();
 }
 
@@ -14,16 +14,18 @@ if (isset($_POST['action']) && isset($_POST['blog_id'])) {
     $action = $_POST['action'];
     
     if ($action === 'publish') {
-        $update_sql = "UPDATE blogs SET status = 'published' WHERE id = :id";
+        $update_sql = "UPDATE blogs SET status = 'published' WHERE id = ?";
     } elseif ($action === 'draft') {
-        $update_sql = "UPDATE blogs SET status = 'draft' WHERE id = :id";
+        $update_sql = "UPDATE blogs SET status = 'draft' WHERE id = ?";
     } elseif ($action === 'delete') {
-        $update_sql = "DELETE FROM blogs WHERE id = :id";
+        $update_sql = "DELETE FROM blogs WHERE id = ?";
     }
     
     if (isset($update_sql)) {
-        $update_stmt = $pdo->prepare($update_sql);
-        $update_stmt->execute([':id' => $blog_id]);
+        $stmt = $conn->prepare($update_sql);
+        $stmt->bind_param("i", $blog_id);
+        $stmt->execute();
+        $stmt->close();
     }
     
     header('Location: admin-blog.php');
@@ -40,42 +42,65 @@ $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 // Build query conditions
 $where_conditions = [];
 $params = [];
+$types = "";
 
 if ($status_filter !== 'all') {
-    $where_conditions[] = "status = :status";
-    $params[':status'] = $status_filter;
+    $where_conditions[] = "status = ?";
+    $params[] = $status_filter;
+    $types .= "s";
 }
 
 if (!empty($search)) {
-    $where_conditions[] = "(title LIKE :search OR content LIKE :search OR author LIKE :search)";
-    $params[':search'] = "%$search%";
+    $where_conditions[] = "(title LIKE ? OR content LIKE ? OR author LIKE ?)";
+    $search_param = "%$search%";
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $types .= "sss";
 }
 
 $where_clause = !empty($where_conditions) ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
 
 // Get total count
-$count_sql = "SELECT COUNT(*) FROM blogs $where_clause";
-$count_stmt = $pdo->prepare($count_sql);
-$count_stmt->execute($params);
-$total_blogs = $count_stmt->fetchColumn();
+$count_sql = "SELECT COUNT(*) as total FROM blogs $where_clause";
+if (!empty($params)) {
+    $count_stmt = $conn->prepare($count_sql);
+    $count_stmt->bind_param($types, ...$params);
+    $count_stmt->execute();
+    $count_result = $count_stmt->get_result();
+    $total_blogs = $count_result->fetch_assoc()['total'];
+    $count_stmt->close();
+} else {
+    $count_result = $conn->query($count_sql);
+    $total_blogs = $count_result->fetch_assoc()['total'];
+}
+
 $total_pages = ceil($total_blogs / $limit);
 
-// Get blogs
+// Get blogs with limit and offset
 $sql = "SELECT b.*, bc.name as category_name 
         FROM blogs b 
         LEFT JOIN blog_categories bc ON b.category = bc.id 
         $where_clause 
         ORDER BY b.created_at DESC 
-        LIMIT :limit OFFSET :offset";
+        LIMIT ? OFFSET ?";
 
-$stmt = $pdo->prepare($sql);
-foreach ($params as $key => $value) {
-    $stmt->bindValue($key, $value);
+$limit_params = $params;
+$limit_params[] = $limit;
+$limit_params[] = $offset;
+$limit_types = $types . "ii";
+
+$stmt = $conn->prepare($sql);
+if (!empty($limit_params)) {
+    $stmt->bind_param($limit_types, ...$limit_params);
 }
-$stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
-$blogs = $stmt->fetchAll();
+$result = $stmt->get_result();
+$blogs = [];
+while ($row = $result->fetch_assoc()) {
+    $blogs[] = $row;
+}
+$stmt->close();
 
 // Get statistics
 $stats_sql = "SELECT 
@@ -83,8 +108,8 @@ $stats_sql = "SELECT
     SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) as published,
     SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft
     FROM blogs";
-$stats_stmt = $pdo->query($stats_sql);
-$stats = $stats_stmt->fetch();
+$stats_result = $conn->query($stats_sql);
+$stats = $stats_result->fetch_assoc();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -119,6 +144,7 @@ $stats = $stats_stmt->fetch();
             border-radius: 20px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             margin-bottom: 30px;
+            position: relative;
         }
 
         .admin-header h1 {
@@ -136,6 +162,24 @@ $stats = $stats_stmt->fetch();
         .breadcrumb a {
             color: #667eea;
             text-decoration: none;
+        }
+
+        .back-to-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .back-to-panel:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
         }
 
         .stats-grid {
@@ -442,6 +486,12 @@ $stats = $stats_stmt->fetch();
             .actions {
                 flex-direction: column;
             }
+
+            .back-to-panel {
+                position: static;
+                margin-top: 20px;
+                text-align: center;
+            }
         }
     </style>
 </head>
@@ -451,8 +501,11 @@ $stats = $stats_stmt->fetch();
         <div class="admin-header">
             <h1><i class="fas fa-blog"></i> Blog Management</h1>
             <div class="breadcrumb">
-                <a href="index.php">Home</a> / Blog Management
+                <a href="admin_panel.php">Admin Panel</a> / Blog Management
             </div>
+            <a href="admin_panel.php" class="back-to-panel">
+                <i class="fas fa-arrow-left"></i> Back to Panel
+            </a>
         </div>
 
         <!-- Statistics -->
@@ -490,7 +543,7 @@ $stats = $stats_stmt->fetch();
                 </form>
             </div>
 
-            <a href="add-blog.php" class="btn btn-primary">
+            <a href="add_blog.php" class="btn btn-primary">
                 <i class="fas fa-plus"></i> Add New Blog
             </a>
         </div>
@@ -549,7 +602,7 @@ $stats = $stats_stmt->fetch();
                                                 <i class="fas fa-eye"></i>
                                             </a>
                                             
-                                            <a href="edit-blog.php?id=<?php echo $blog['id']; ?>" 
+                                            <a href="edit_blog.php?id=<?php echo $blog['id']; ?>" 
                                                class="btn btn-sm" style="background: #38b2ac; color: white;" 
                                                title="Edit">
                                                 <i class="fas fa-edit"></i>
@@ -620,9 +673,6 @@ $stats = $stats_stmt->fetch();
     </div>
 
     <script>
-        // Auto-refresh page every 30 seconds for real-time updates
-        // setTimeout(() => location.reload(), 30000);
-        
         // Confirm delete actions
         document.querySelectorAll('form[onsubmit*="confirm"]').forEach(form => {
             form.addEventListener('submit', function(e) {
