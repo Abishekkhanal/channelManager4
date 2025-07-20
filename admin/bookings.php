@@ -518,6 +518,21 @@ try {
             min-width: auto;
         }
 
+        /* Thermal print dropdown styles */
+        .thermal-menu a:hover {
+            background: #f8f9fa !important;
+            color: #007bff !important;
+        }
+
+        .thermal-menu a:first-child {
+            border-radius: 3px 3px 0 0;
+        }
+
+        .thermal-menu a:last-child {
+            border-radius: 0 0 3px 3px;
+            border-bottom: none !important;
+        }
+
         .modal {
             display: none;
             position: fixed;
@@ -1043,6 +1058,13 @@ try {
                                             <button class="btn btn-warning btn-sm" onclick="updateStatus(<?php echo $booking['id']; ?>, '<?php echo $booking['status']; ?>')">Status</button>
                                             <button class="btn btn-success btn-sm" onclick="manageExpenses(<?php echo $booking['id']; ?>)">Expenses</button>
                                             <button class="btn btn-info btn-sm" onclick="printBill(<?php echo $booking['id']; ?>)">Print Bill</button>
+                                            <div class="dropdown" style="display: inline-block; position: relative;">
+                                                <button class="btn btn-secondary btn-sm" onclick="toggleThermalMenu(<?php echo $booking['id']; ?>)">🧾 Thermal ▼</button>
+                                                <div id="thermal-menu-<?php echo $booking['id']; ?>" class="thermal-menu" style="display: none; position: absolute; top: 100%; left: 0; background: white; border: 1px solid #ccc; border-radius: 3px; z-index: 1000; min-width: 120px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                                                    <a href="#" onclick="printThermal(<?php echo $booking['id']; ?>, '80mm')" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem; border-bottom: 1px solid #eee;">📄 80mm Paper</a>
+                                                    <a href="#" onclick="printThermal(<?php echo $booking['id']; ?>, '58mm')" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem;">📄 58mm Paper</a>
+                                                </div>
+                                            </div>
                                         </div>
                                     </td>
                                 </tr>
@@ -1283,6 +1305,53 @@ try {
             // Open the professional invoice page in a new window
             window.open(`print_bill.php?booking_id=${bookingId}`, '_blank');
         }
+
+        function printThermal(bookingId, paperSize = '80mm') {
+            // Close any open thermal menus
+            document.querySelectorAll('.thermal-menu').forEach(menu => {
+                menu.style.display = 'none';
+            });
+            
+            // Determine which thermal print file to use
+            const printFile = paperSize === '58mm' ? 'thermal_print_58mm.php' : 'thermal_print.php';
+            const windowWidth = paperSize === '58mm' ? 280 : 400;
+            
+            // Open the thermal receipt in a new window optimized for thermal printing
+            const thermalWindow = window.open(
+                `${printFile}?booking_id=${bookingId}`, 
+                '_blank', 
+                `width=${windowWidth},height=600,scrollbars=yes,resizable=yes`
+            );
+            
+            // Optional: Auto-print after loading (uncomment if needed)
+            // thermalWindow.onload = function() {
+            //     setTimeout(() => {
+            //         thermalWindow.print();
+            //     }, 1000);
+            // };
+        }
+
+        function toggleThermalMenu(bookingId) {
+            // Close all other thermal menus first
+            document.querySelectorAll('.thermal-menu').forEach(menu => {
+                if (menu.id !== `thermal-menu-${bookingId}`) {
+                    menu.style.display = 'none';
+                }
+            });
+            
+            // Toggle the specific menu
+            const menu = document.getElementById(`thermal-menu-${bookingId}`);
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Close thermal menus when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!event.target.closest('.dropdown')) {
+                document.querySelectorAll('.thermal-menu').forEach(menu => {
+                    menu.style.display = 'none';
+                });
+            }
+        });
 
         function generateBillHTML(data) {
             const checkIn = new Date(data.booking.check_in);
