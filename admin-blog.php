@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once '../config/database.php';
+require_once 'config/database.php';
 
 // Simple admin authentication (you should implement proper authentication)
 if (!isset($_SESSION['admin_logged_in'])) {
@@ -26,7 +26,7 @@ if (isset($_POST['action']) && isset($_POST['blog_id'])) {
         $update_stmt->execute([':id' => $blog_id]);
     }
     
-    header('Location: blogs.php');
+    header('Location: admin-blog.php');
     exit();
 }
 
@@ -451,7 +451,7 @@ $stats = $stats_stmt->fetch();
         <div class="admin-header">
             <h1><i class="fas fa-blog"></i> Blog Management</h1>
             <div class="breadcrumb">
-                <a href="dashboard.php">Dashboard</a> / Blog Management
+                <a href="index.php">Home</a> / Blog Management
             </div>
         </div>
 
@@ -543,7 +543,7 @@ $stats = $stats_stmt->fetch();
                                     <td><?php echo date('M d, Y', strtotime($blog['created_at'])); ?></td>
                                     <td>
                                         <div class="actions">
-                                            <a href="../blog-view.php?slug=<?php echo urlencode($blog['slug']); ?>" 
+                                            <a href="blog-view.php?slug=<?php echo urlencode($blog['slug']); ?>" 
                                                class="btn btn-sm" style="background: #4299e1; color: white;" 
                                                target="_blank" title="View">
                                                 <i class="fas fa-eye"></i>
