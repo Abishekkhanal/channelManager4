@@ -78,9 +78,8 @@ if (!empty($params)) {
 $total_pages = ceil($total_blogs / $limit);
 
 // Get blogs with limit and offset
-$sql = "SELECT b.*, bc.name as category_name 
+$sql = "SELECT b.*, b.category as category_name 
         FROM blogs b 
-        LEFT JOIN blog_categories bc ON b.category = bc.id 
         $where_clause 
         ORDER BY b.created_at DESC 
         LIMIT ? OFFSET ?";

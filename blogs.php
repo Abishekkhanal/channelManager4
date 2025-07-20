@@ -1,6 +1,26 @@
 <?php
 require_once 'config/database.php';
 
+// Helper function to get correct image path
+function getImagePath($image) {
+    if (empty($image)) {
+        return '';
+    }
+    
+    // If image already has uploads/ prefix, return as is
+    if (strpos($image, 'uploads/') === 0) {
+        return $image;
+    }
+    
+    // If image exists with uploads/ prefix, add it
+    if (file_exists('uploads/' . $image)) {
+        return 'uploads/' . $image;
+    }
+    
+    // Otherwise return the original path
+    return $image;
+}
+
 // Get page and search parameters
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
@@ -47,9 +67,8 @@ if (!empty($params)) {
 $total_pages = ceil($total_blogs / $limit);
 
 // Get blogs with pagination
-$sql = "SELECT b.*, bc.name as category_name 
+$sql = "SELECT b.*, b.category as category_name 
         FROM blogs b 
-        LEFT JOIN blog_categories bc ON b.category = bc.id 
         $where_clause 
         ORDER BY b.created_at DESC 
         LIMIT ? OFFSET ?";
@@ -643,7 +662,7 @@ while ($row = $popular_result->fetch_assoc()) {
                         <?php foreach ($blogs as $blog): ?>
                             <article class="blog-card">
                                 <?php if (!empty($blog['image'])): ?>
-                                    <img src="<?php echo htmlspecialchars($blog['image']); ?>" 
+                                    <img src="<?php echo htmlspecialchars(getImagePath($blog['image'])); ?>" 
                                          alt="<?php echo htmlspecialchars($blog['title']); ?>" 
                                          class="blog-image">
                                 <?php else: ?>
@@ -741,7 +760,7 @@ while ($row = $popular_result->fetch_assoc()) {
                     <?php foreach ($recent_blogs as $recent): ?>
                         <div class="recent-blog">
                             <?php if (!empty($recent['image'])): ?>
-                                <img src="<?php echo htmlspecialchars($recent['image']); ?>" 
+                                <img src="<?php echo htmlspecialchars(getImagePath($recent['image'])); ?>" 
                                      alt="<?php echo htmlspecialchars($recent['title']); ?>" 
                                      class="recent-blog-image">
                             <?php else: ?>
@@ -767,7 +786,7 @@ while ($row = $popular_result->fetch_assoc()) {
                     <?php foreach ($popular_blogs as $popular): ?>
                         <div class="recent-blog">
                             <?php if (!empty($popular['image'])): ?>
-                                <img src="<?php echo htmlspecialchars($popular['image']); ?>" 
+                                <img src="<?php echo htmlspecialchars(getImagePath($popular['image'])); ?>" 
                                      alt="<?php echo htmlspecialchars($popular['title']); ?>" 
                                      class="recent-blog-image">
                             <?php else: ?>

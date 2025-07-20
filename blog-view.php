@@ -1,6 +1,26 @@
 <?php
 require_once 'config/database.php';
 
+// Helper function to get correct image path
+function getImagePath($image) {
+    if (empty($image)) {
+        return '';
+    }
+    
+    // If image already has uploads/ prefix, return as is
+    if (strpos($image, 'uploads/') === 0) {
+        return $image;
+    }
+    
+    // If image exists with uploads/ prefix, add it
+    if (file_exists('uploads/' . $image)) {
+        return 'uploads/' . $image;
+    }
+    
+    // Otherwise return the original path
+    return $image;
+}
+
 // Get blog slug from URL
 $slug = isset($_GET['slug']) ? trim($_GET['slug']) : '';
 
@@ -10,9 +30,8 @@ if (empty($slug)) {
 }
 
 // Get blog details
-$blog_sql = "SELECT b.*, bc.name as category_name 
+$blog_sql = "SELECT b.*, b.category as category_name 
              FROM blogs b 
-             LEFT JOIN blog_categories bc ON b.category = bc.id 
              WHERE b.slug = ? AND b.status = 'published'";
 $blog_stmt = $conn->prepare($blog_sql);
 $blog_stmt->bind_param("s", $slug);
@@ -56,8 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_comment'])) {
     $parent_id = isset($_POST['parent_id']) ? (int)$_POST['parent_id'] : 0;
     
     if (!empty($name) && !empty($email) && !empty($comment_text)) {
-        $comment_sql = "INSERT INTO blog_comments (blog_id, name, email, comment, parent_id, created_at, status) 
-                        VALUES (?, ?, ?, ?, ?, NOW(), 'approved')";
+        $comment_sql = "INSERT INTO blog_comments (blog_id, name, email, comment, parent_id, status) 
+                        VALUES (?, ?, ?, ?, ?, 'pending')";
         $comment_stmt = $conn->prepare($comment_sql);
         $comment_stmt->bind_param("isssi", $blog['id'], $name, $email, $comment_text, $parent_id);
         $comment_stmt->execute();
@@ -71,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_comment'])) {
 
 // Get comments for this blog
 $comments_sql = "SELECT * FROM blog_comments 
-                 WHERE blog_id = ? AND status = 'approved' 
+                 WHERE blog_id = ? AND (status = 'approved' OR status = 'pending')
                  ORDER BY created_at ASC";
 $comments_stmt = $conn->prepare($comments_sql);
 $comments_stmt->bind_param("i", $blog['id']);
@@ -144,7 +163,7 @@ $popular_stmt->close();
     <meta property="og:type" content="article">
     <meta property="og:url" content="<?php echo 'http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']; ?>">
     <?php if ($blog['image']): ?>
-        <meta property="og:image" content="<?php echo 'http://' . $_SERVER['HTTP_HOST'] . '/' . $blog['image']; ?>">
+        <meta property="og:image" content="<?php echo 'http://' . $_SERVER['HTTP_HOST'] . '/' . getImagePath($blog['image']); ?>">
     <?php endif; ?>
     
     <!-- Twitter Card Tags -->
@@ -152,7 +171,7 @@ $popular_stmt->close();
     <meta name="twitter:title" content="<?php echo htmlspecialchars($blog['title']); ?>">
     <meta name="twitter:description" content="<?php echo htmlspecialchars(substr(strip_tags($blog['content']), 0, 160)); ?>">
     <?php if ($blog['image']): ?>
-        <meta name="twitter:image" content="<?php echo 'http://' . $_SERVER['HTTP_HOST'] . '/' . $blog['image']; ?>">
+        <meta name="twitter:image" content="<?php echo 'http://' . $_SERVER['HTTP_HOST'] . '/' . getImagePath($blog['image']); ?>">
     <?php endif; ?>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -773,7 +792,7 @@ $popular_stmt->close();
             <main>
                 <article class="article-content">
                     <?php if (!empty($blog['image'])): ?>
-                        <img src="<?php echo htmlspecialchars($blog['image']); ?>" 
+                        <img src="<?php echo htmlspecialchars(getImagePath($blog['image'])); ?>" 
                              alt="<?php echo htmlspecialchars($blog['title']); ?>" 
                              class="featured-image">
                     <?php endif; ?>
@@ -916,7 +935,7 @@ $popular_stmt->close();
                     <?php foreach ($recent_blogs as $recent): ?>
                         <div class="recent-blog">
                             <?php if (!empty($recent['image'])): ?>
-                                <img src="<?php echo htmlspecialchars($recent['image']); ?>" 
+                                <img src="<?php echo htmlspecialchars(getImagePath($recent['image'])); ?>" 
                                      alt="<?php echo htmlspecialchars($recent['title']); ?>" 
                                      class="recent-blog-image">
                             <?php else: ?>
@@ -942,7 +961,7 @@ $popular_stmt->close();
                     <?php foreach ($popular_blogs as $popular): ?>
                         <div class="recent-blog">
                             <?php if (!empty($popular['image'])): ?>
-                                <img src="<?php echo htmlspecialchars($popular['image']); ?>" 
+                                <img src="<?php echo htmlspecialchars(getImagePath($popular['image'])); ?>" 
                                      alt="<?php echo htmlspecialchars($popular['title']); ?>" 
                                      class="recent-blog-image">
                             <?php else: ?>

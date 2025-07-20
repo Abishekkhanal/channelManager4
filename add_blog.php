@@ -12,7 +12,7 @@ $success = '';
 $error = '';
 
 // Get categories for dropdown
-$categories_sql = "SELECT id, name FROM blog_categories ORDER BY name";
+$categories_sql = "SELECT name FROM blog_categories ORDER BY name";
 $categories_result = $conn->query($categories_sql);
 $categories = [];
 while ($row = $categories_result->fetch_assoc()) {
@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $slug = trim($_POST['slug']);
     $content = trim($_POST['content']);
     $author = trim($_POST['author']);
-    $category = (int)$_POST['category'];
+    $category = trim($_POST['category']);
     $seo_title = trim($_POST['seo_title']);
     $seo_description = trim($_POST['seo_description']);
     $tags = trim($_POST['tags']);
@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $upload_path = $upload_dir . $new_filename;
         
         if (move_uploaded_file($_FILES['image']['tmp_name'], $upload_path)) {
-            $image_path = $upload_path;
+            $image_path = $upload_path; // This will include uploads/ prefix
         } else {
             $error = "Failed to upload image.";
         }
@@ -73,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, ?)";
         
         $insert_stmt = $conn->prepare($insert_sql);
-        $insert_stmt->bind_param("sssssssssi", $title, $slug, $content, $image_path, $author, $seo_title, $seo_description, $tags, $status, $category);
+        $insert_stmt->bind_param("ssssssssss", $title, $slug, $content, $image_path, $author, $seo_title, $seo_description, $tags, $status, $category);
         
         if ($insert_stmt->execute()) {
             $success = "Blog post created successfully!";
@@ -561,10 +561,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 
                                 <div class="form-group">
                                     <select name="category" class="form-control">
-                                        <option value="0">Select Category</option>
+                                        <option value="">Select Category</option>
                                         <?php foreach ($categories as $category): ?>
-                                            <option value="<?php echo $category['id']; ?>"
-                                                    <?php echo (isset($_POST['category']) && $_POST['category'] == $category['id']) ? 'selected' : ''; ?>>
+                                            <option value="<?php echo htmlspecialchars($category['name']); ?>"
+                                                    <?php echo (isset($_POST['category']) && $_POST['category'] == $category['name']) ? 'selected' : ''; ?>>
                                                 <?php echo htmlspecialchars($category['name']); ?>
                                             </option>
                                         <?php endforeach; ?>
