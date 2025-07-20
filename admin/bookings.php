@@ -852,6 +852,13 @@ try {
 
     <div class="container">
         <h1 class="page-title">Bookings Management</h1>
+        
+        <!-- Debug Test Section -->
+        <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 1rem; margin-bottom: 1rem; border-radius: 5px;">
+            <strong>🔧 Debug Test:</strong>
+            <a href="test_print.php" target="_blank" style="margin-left: 1rem; padding: 0.5rem 1rem; background: #007bff; color: white; text-decoration: none; border-radius: 3px;">Test Print Functions</a>
+            <span style="margin-left: 1rem; font-size: 0.9rem; color: #856404;">Use this to test if print functions are working</span>
+        </div>
 
         <?php if (isset($success_message)): ?>
             <div class="alert alert-success"><?php echo $success_message; ?></div>
@@ -1061,8 +1068,8 @@ try {
                                             <div class="dropdown" style="display: inline-block; position: relative;">
                                                 <button class="btn btn-secondary btn-sm" onclick="toggleThermalMenu(<?php echo $booking['id']; ?>)">🧾 Thermal ▼</button>
                                                 <div id="thermal-menu-<?php echo $booking['id']; ?>" class="thermal-menu" style="display: none; position: absolute; top: 100%; left: 0; background: white; border: 1px solid #ccc; border-radius: 3px; z-index: 1000; min-width: 120px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
-                                                    <a href="#" onclick="printThermal(<?php echo $booking['id']; ?>, '80mm')" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem; border-bottom: 1px solid #eee;">📄 80mm Paper</a>
-                                                    <a href="#" onclick="printThermal(<?php echo $booking['id']; ?>, '58mm')" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem;">📄 58mm Paper</a>
+                                                    <a href="#" onclick="event.preventDefault(); printThermal(<?php echo $booking['id']; ?>, '80mm'); return false;" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem; border-bottom: 1px solid #eee;">📄 80mm Paper</a>
+                                                    <a href="#" onclick="event.preventDefault(); printThermal(<?php echo $booking['id']; ?>, '58mm'); return false;" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem;">📄 58mm Paper</a>
                                                 </div>
                                             </div>
                                         </div>
@@ -1296,39 +1303,67 @@ try {
         }
 
         async function printBill(bookingId) {
+            console.log('printBill called with bookingId:', bookingId);
+            
             if (typeof bookingId === 'undefined') {
                 // If called from print button inside modal, print the current content
                 window.print();
                 return;
             }
             
-            // Open the professional invoice page in a new window
-            window.open(`print_bill.php?booking_id=${bookingId}`, '_blank');
+            try {
+                // Open the professional invoice page in a new window
+                const printWindow = window.open(`print_bill.php?booking_id=${bookingId}`, '_blank');
+                
+                if (!printWindow) {
+                    alert('Pop-up was blocked by your browser. Please allow pop-ups for this site and try again.');
+                    return false;
+                }
+                
+                console.log('Print bill window opened successfully');
+            } catch (error) {
+                console.error('Error opening print bill window:', error);
+                alert('Error opening print window: ' + error.message);
+            }
         }
 
         function printThermal(bookingId, paperSize = '80mm') {
+            console.log('printThermal called with bookingId:', bookingId, 'paperSize:', paperSize);
+            
             // Close any open thermal menus
             document.querySelectorAll('.thermal-menu').forEach(menu => {
                 menu.style.display = 'none';
             });
             
-            // Determine which thermal print file to use
-            const printFile = paperSize === '58mm' ? 'thermal_print_58mm.php' : 'thermal_print.php';
-            const windowWidth = paperSize === '58mm' ? 280 : 400;
-            
-            // Open the thermal receipt in a new window optimized for thermal printing
-            const thermalWindow = window.open(
-                `${printFile}?booking_id=${bookingId}`, 
-                '_blank', 
-                `width=${windowWidth},height=600,scrollbars=yes,resizable=yes`
-            );
-            
-            // Optional: Auto-print after loading (uncomment if needed)
-            // thermalWindow.onload = function() {
-            //     setTimeout(() => {
-            //         thermalWindow.print();
-            //     }, 1000);
-            // };
+            try {
+                // Determine which thermal print file to use
+                const printFile = paperSize === '58mm' ? 'thermal_print_58mm.php' : 'thermal_print.php';
+                const windowWidth = paperSize === '58mm' ? 280 : 400;
+                
+                // Open the thermal receipt in a new window optimized for thermal printing
+                const thermalWindow = window.open(
+                    `${printFile}?booking_id=${bookingId}`, 
+                    '_blank', 
+                    `width=${windowWidth},height=600,scrollbars=yes,resizable=yes`
+                );
+                
+                if (!thermalWindow) {
+                    alert('Pop-up was blocked by your browser. Please allow pop-ups for this site and try again.');
+                    return false;
+                }
+                
+                console.log('Thermal print window opened successfully');
+                
+                // Optional: Auto-print after loading (uncomment if needed)
+                // thermalWindow.onload = function() {
+                //     setTimeout(() => {
+                //         thermalWindow.print();
+                //     }, 1000);
+                // };
+            } catch (error) {
+                console.error('Error opening thermal print window:', error);
+                alert('Error opening thermal print window: ' + error.message);
+            }
         }
 
         function toggleThermalMenu(bookingId) {
