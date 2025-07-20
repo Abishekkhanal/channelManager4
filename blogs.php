@@ -24,7 +24,7 @@ function getImagePath($image) {
 // Get page and search parameters
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
-$category_filter = isset($_GET['category']) ? (int)$_GET['category'] : 0;
+$category_filter = isset($_GET['category']) ? trim($_GET['category']) : '';
 $limit = 9; // Number of blogs per page
 $offset = ($page - 1) * $limit;
 
@@ -42,10 +42,10 @@ if (!empty($search)) {
     $types .= "sss";
 }
 
-if ($category_filter > 0) {
+if (!empty($category_filter)) {
     $where_conditions[] = "category = ?";
     $params[] = $category_filter;
-    $types .= "i";
+    $types .= "s";
 }
 
 $where_clause = 'WHERE ' . implode(' AND ', $where_conditions);
@@ -89,6 +89,18 @@ while ($row = $result->fetch_assoc()) {
     $blogs[] = $row;
 }
 $stmt->close();
+
+// Debug: Show query info (remove this later)
+if (isset($_GET['debug'])) {
+    echo "<div style='background: #f0f0f0; padding: 10px; margin: 10px; border: 1px solid #ccc;'>";
+    echo "<h3>Debug Info:</h3>";
+    echo "<p><strong>Total blogs found:</strong> " . count($blogs) . "</p>";
+    echo "<p><strong>Search term:</strong> '" . htmlspecialchars($search) . "'</p>";
+    echo "<p><strong>Category filter:</strong> '" . htmlspecialchars($category_filter) . "'</p>";
+    echo "<p><strong>SQL WHERE:</strong> " . htmlspecialchars($where_clause) . "</p>";
+    echo "<p><strong>Total published blogs:</strong> " . $total_blogs . "</p>";
+    echo "</div>";
+}
 
 // Get categories for filter dropdown
 $categories_sql = "SELECT id, name FROM blog_categories ORDER BY name";
@@ -630,10 +642,10 @@ while ($row = $popular_result->fetch_assoc()) {
                        value="<?php echo htmlspecialchars($search); ?>">
                 
                 <select name="category" class="category-select">
-                    <option value="0">All Categories</option>
+                    <option value="">All Categories</option>
                     <?php foreach ($categories as $category): ?>
-                        <option value="<?php echo $category['id']; ?>"
-                                <?php echo $category_filter == $category['id'] ? 'selected' : ''; ?>>
+                        <option value="<?php echo htmlspecialchars($category['name']); ?>"
+                                <?php echo $category_filter == $category['name'] ? 'selected' : ''; ?>>
                             <?php echo htmlspecialchars($category['name']); ?>
                         </option>
                     <?php endforeach; ?>

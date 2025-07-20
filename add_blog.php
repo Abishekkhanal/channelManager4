@@ -534,20 +534,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 
                                 <div class="status-options">
                                     <label class="status-option">
-                                        <input type="radio" name="status" value="draft" 
-                                               <?php echo (!isset($_POST['status']) || $_POST['status'] === 'draft') ? 'checked' : ''; ?>>
+                                        <input type="radio" name="status" value="published" 
+                                               <?php echo (!isset($_POST['status']) || $_POST['status'] === 'published') ? 'checked' : ''; ?>>
                                         <div>
-                                            <strong>Save as Draft</strong>
-                                            <div class="help-text">Not visible to public</div>
+                                            <strong>Publish Now</strong>
+                                            <div class="help-text">Make it live immediately</div>
                                         </div>
                                     </label>
                                     
                                     <label class="status-option">
-                                        <input type="radio" name="status" value="published"
-                                               <?php echo (isset($_POST['status']) && $_POST['status'] === 'published') ? 'checked' : ''; ?>>
+                                        <input type="radio" name="status" value="draft"
+                                               <?php echo (isset($_POST['status']) && $_POST['status'] === 'draft') ? 'checked' : ''; ?>>
                                         <div>
-                                            <strong>Publish Now</strong>
-                                            <div class="help-text">Make it live immediately</div>
+                                            <strong>Save as Draft</strong>
+                                            <div class="help-text">Not visible to public</div>
                                         </div>
                                     </label>
                                 </div>
