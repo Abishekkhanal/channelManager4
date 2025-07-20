@@ -90,18 +90,6 @@ while ($row = $result->fetch_assoc()) {
 }
 $stmt->close();
 
-// Debug: Show query info (remove this later)
-if (isset($_GET['debug'])) {
-    echo "<div style='background: #f0f0f0; padding: 10px; margin: 10px; border: 1px solid #ccc;'>";
-    echo "<h3>Debug Info:</h3>";
-    echo "<p><strong>Total blogs found:</strong> " . count($blogs) . "</p>";
-    echo "<p><strong>Search term:</strong> '" . htmlspecialchars($search) . "'</p>";
-    echo "<p><strong>Category filter:</strong> '" . htmlspecialchars($category_filter) . "'</p>";
-    echo "<p><strong>SQL WHERE:</strong> " . htmlspecialchars($where_clause) . "</p>";
-    echo "<p><strong>Total published blogs:</strong> " . $total_blogs . "</p>";
-    echo "</div>";
-}
-
 // Get categories for filter dropdown
 $categories_sql = "SELECT id, name FROM blog_categories ORDER BY name";
 $categories_result = $conn->query($categories_sql);
