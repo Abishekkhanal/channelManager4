@@ -1,3 +1,92 @@
+<?php
+require_once 'config/database.php';
+
+// Pagination settings
+$limit = 6; // blogs per page
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$offset = ($page - 1) * $limit;
+
+// Search and filter parameters
+$search = isset($_GET['search']) ? trim($_GET['search']) : '';
+$category_id = isset($_GET['category']) ? (int)$_GET['category'] : 0;
+
+// Build query conditions
+$where_conditions = ["status = 'published'"];
+$params = [];
+
+if (!empty($search)) {
+    $where_conditions[] = "(title LIKE :search OR content LIKE :search OR tags LIKE :search)";
+    $params[':search'] = "%$search%";
+}
+
+if ($category_id > 0) {
+    $where_conditions[] = "category = :category_id";
+    $params[':category_id'] = $category_id;
+}
+
+$where_clause = implode(' AND ', $where_conditions);
+
+// Get total count for pagination
+$count_sql = "SELECT COUNT(*) FROM blogs WHERE $where_clause";
+$count_stmt = $pdo->prepare($count_sql);
+$count_stmt->execute($params);
+$total_blogs = $count_stmt->fetchColumn();
+$total_pages = ceil($total_blogs / $limit);
+
+// Get blogs with pagination
+$sql = "SELECT id, title, slug, content, image, author, tags, created_at, category 
+        FROM blogs 
+        WHERE $where_clause 
+        ORDER BY created_at DESC 
+        LIMIT :limit OFFSET :offset";
+
+$stmt = $pdo->prepare($sql);
+foreach ($params as $key => $value) {
+    $stmt->bindValue($key, $value);
+}
+$stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+$stmt->execute();
+$blogs = $stmt->fetchAll();
+
+// Get categories for filter
+$categories_sql = "SELECT id, name FROM blog_categories ORDER BY name";
+$categories_stmt = $pdo->query($categories_sql);
+$categories = $categories_stmt->fetchAll();
+
+// Get category name for current filter
+$current_category_name = 'All Posts';
+if ($category_id > 0) {
+    $cat_sql = "SELECT name FROM blog_categories WHERE id = :id";
+    $cat_stmt = $pdo->prepare($cat_sql);
+    $cat_stmt->execute([':id' => $category_id]);
+    $cat_result = $cat_stmt->fetch();
+    if ($cat_result) {
+        $current_category_name = $cat_result['name'];
+    }
+}
+
+// Helper function to get excerpt
+function getExcerpt($content, $length = 150) {
+    $content = strip_tags($content);
+    if (strlen($content) <= $length) {
+        return $content;
+    }
+    return substr($content, 0, $length) . '...';
+}
+
+// Helper function to format date
+function timeAgo($date) {
+    $time = time() - strtotime($date);
+    
+    if ($time < 60) return 'just now';
+    if ($time < 3600) return floor($time/60) . ' minutes ago';
+    if ($time < 86400) return floor($time/3600) . ' hours ago';
+    if ($time < 2592000) return floor($time/86400) . ' days ago';
+    if ($time < 31536000) return floor($time/2592000) . ' months ago';
+    return floor($time/31536000) . ' years ago';
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -44,6 +133,58 @@
       padding: 0 20px;
     }
 
+    /* Search and Filter */
+    .blog-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 40px;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .search-form {
+      display: flex;
+      align-items: center;
+      background: white;
+      border: 2px solid #e9ecef;
+      border-radius: 25px;
+      padding: 5px;
+      transition: border-color 0.3s ease;
+      min-width: 300px;
+    }
+
+    .search-form:focus-within {
+      border-color: #667eea;
+    }
+
+    .search-form input {
+      border: none;
+      outline: none;
+      padding: 10px 15px;
+      flex: 1;
+      font-size: 0.95rem;
+    }
+
+    .search-form button {
+      background: #667eea;
+      border: none;
+      color: white;
+      padding: 10px 15px;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    .search-form button:hover {
+      background: #5a6fd8;
+    }
+
+    .results-info {
+      color: #666;
+      font-size: 0.9rem;
+    }
+
     /* Category Tabs */
     .blog-categories {
       margin-bottom: 40px;
@@ -69,6 +210,7 @@
       font-weight: 500;
       transition: all 0.3s ease;
       color: #666;
+      text-decoration: none;
     }
 
     .category-tab.active {
@@ -260,53 +402,6 @@
       color: white;
     }
 
-    /* Search and Filter */
-    .blog-controls {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 40px;
-      gap: 20px;
-      flex-wrap: wrap;
-    }
-
-    .search-box {
-      display: flex;
-      align-items: center;
-      background: white;
-      border: 2px solid #e9ecef;
-      border-radius: 25px;
-      padding: 5px;
-      transition: border-color 0.3s ease;
-      min-width: 300px;
-    }
-
-    .search-box:focus-within {
-      border-color: #667eea;
-    }
-
-    .search-box input {
-      border: none;
-      outline: none;
-      padding: 10px 15px;
-      flex: 1;
-      font-size: 0.95rem;
-    }
-
-    .search-box button {
-      background: #667eea;
-      border: none;
-      color: white;
-      padding: 10px 15px;
-      border-radius: 20px;
-      cursor: pointer;
-      transition: background 0.3s ease;
-    }
-
-    .search-box button:hover {
-      background: #5a6fd8;
-    }
-
     /* Newsletter Section */
     .newsletter-section {
       background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
@@ -357,6 +452,23 @@
       transform: scale(1.05);
     }
 
+    .no-results {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+
+    .no-results i {
+      font-size: 4rem;
+      margin-bottom: 20px;
+      opacity: 0.5;
+    }
+
+    .no-results h3 {
+      font-size: 1.5rem;
+      margin-bottom: 10px;
+    }
+
     /* Responsive Design */
     @media (max-width: 768px) {
       .blog-hero h1 {
@@ -377,7 +489,7 @@
         align-items: stretch;
       }
 
-      .search-box {
+      .search-form {
         min-width: 100%;
       }
 
@@ -480,194 +592,120 @@
   <div class="blog-container">
     <!-- Search and Filter Controls -->
     <div class="blog-controls">
-      <div class="search-box">
-        <input type="text" placeholder="Search articles...">
+      <form class="search-form" method="GET">
+        <input type="text" name="search" placeholder="Search articles..." value="<?php echo htmlspecialchars($search); ?>">
+        <?php if ($category_id > 0): ?>
+          <input type="hidden" name="category" value="<?php echo $category_id; ?>">
+        <?php endif; ?>
         <button type="submit"><i class="fas fa-search"></i></button>
+      </form>
+      
+      <div class="results-info">
+        Showing <?php echo count($blogs); ?> of <?php echo $total_blogs; ?> articles
+        <?php if (!empty($search)): ?>
+          for "<?php echo htmlspecialchars($search); ?>"
+        <?php endif; ?>
+        <?php if ($category_id > 0): ?>
+          in <?php echo htmlspecialchars($current_category_name); ?>
+        <?php endif; ?>
       </div>
     </div>
 
     <!-- Category Tabs -->
     <div class="blog-categories">
       <div class="category-tabs">
-        <button class="category-tab active">All Posts</button>
-        <button class="category-tab">Destinations</button>
-        <button class="category-tab">Travel Tips</button>
-        <button class="category-tab">Culture</button>
-        <button class="category-tab">Adventure</button>
+        <a href="blogs.php" class="category-tab <?php echo $category_id == 0 ? 'active' : ''; ?>">All Posts</a>
+        <?php foreach ($categories as $category): ?>
+          <a href="blogs.php?category=<?php echo $category['id']; ?>" 
+             class="category-tab <?php echo $category_id == $category['id'] ? 'active' : ''; ?>">
+            <?php echo htmlspecialchars($category['name']); ?>
+          </a>
+        <?php endforeach; ?>
       </div>
     </div>
 
     <!-- Featured Posts Section -->
     <section class="featured-section">
-      <h2 class="section-title">Featured Articles</h2>
+      <h2 class="section-title"><?php echo $current_category_name; ?></h2>
       
-      <div class="blog-grid">
-        <article class="blog-card">
-          <div class="blog-card-image">
-            <img src="uploads/1752674104_Darjeeling-anugra.webp" alt="Darjeeling Dreams">
-            <span class="blog-badge">Featured</span>
-          </div>
-          <div class="blog-content">
-            <h3>Darjeeling Dreams: Discover the Queen of Hills with Anugra</h3>
-            <p class="blog-excerpt">Welcome to Darjeeling, the crown jewel of the Eastern Himalayas! Nestled amidst emerald tea gardens and kissed by the morning sun over Kanchenjunga...</p>
-            <div class="blog-meta">
-              <span class="blog-author">
-                <i class="fas fa-user"></i>
-                Travel Guide
-              </span>
-              <span class="blog-date">
-                <i class="fas fa-calendar"></i>
-                3 days ago
-              </span>
-            </div>
-            <a href="blog-view.php?slug=%2Fexplore-darjeeling-with-anugra" class="read-more-btn">
-              Read More <i class="fas fa-arrow-right"></i>
-            </a>
-          </div>
-        </article>
+      <?php if (empty($blogs)): ?>
+        <div class="no-results">
+          <i class="fas fa-search"></i>
+          <h3>No articles found</h3>
+          <p>Try adjusting your search or browse all articles</p>
+          <a href="blogs.php" style="color: #667eea; text-decoration: none; font-weight: 600;">← Back to all articles</a>
+        </div>
+      <?php else: ?>
+        <div class="blog-grid">
+          <?php foreach ($blogs as $blog): ?>
+            <article class="blog-card">
+              <div class="blog-card-image">
+                <?php if ($blog['image']): ?>
+                  <img src="<?php echo htmlspecialchars($blog['image']); ?>" alt="<?php echo htmlspecialchars($blog['title']); ?>">
+                <?php else: ?>
+                  <img src="uploads/default-blog.jpg" alt="<?php echo htmlspecialchars($blog['title']); ?>">
+                <?php endif; ?>
+                <span class="blog-badge">Featured</span>
+              </div>
+              <div class="blog-content">
+                <h3><?php echo htmlspecialchars($blog['title']); ?></h3>
+                <p class="blog-excerpt"><?php echo getExcerpt($blog['content']); ?></p>
+                <div class="blog-meta">
+                  <span class="blog-author">
+                    <i class="fas fa-user"></i>
+                    <?php echo htmlspecialchars($blog['author']); ?>
+                  </span>
+                  <span class="blog-date">
+                    <i class="fas fa-calendar"></i>
+                    <?php echo timeAgo($blog['created_at']); ?>
+                  </span>
+                </div>
+                <a href="blog-view.php?slug=<?php echo urlencode($blog['slug']); ?>" class="read-more-btn">
+                  Read More <i class="fas fa-arrow-right"></i>
+                </a>
+              </div>
+            </article>
+          <?php endforeach; ?>
+        </div>
 
-        <article class="blog-card">
-          <div class="blog-card-image">
-            <img src="uploads/1752933363_lachung-anugra.webp" alt="Lachung Village">
-            <span class="blog-badge">Popular</span>
-          </div>
-          <div class="blog-content">
-            <h3>Lachung Village: Discover the Snowy Gem of North Sikkim</h3>
-            <p class="blog-excerpt">Experience the magical beauty of Lachung Village, where snow-capped mountains meet pristine valleys in the heart of North Sikkim...</p>
-            <div class="blog-meta">
-              <span class="blog-author">
-                <i class="fas fa-user"></i>
-                Travel Guide
-              </span>
-              <span class="blog-date">
-                <i class="fas fa-calendar"></i>
-                Today
-              </span>
-            </div>
-            <a href="blog-view.php?slug=lachung-village-north-sikkim-travel-guide-anugra-tours" class="read-more-btn">
-              Read More <i class="fas fa-arrow-right"></i>
-            </a>
-          </div>
-        </article>
+        <!-- Pagination -->
+        <?php if ($total_pages > 1): ?>
+          <div class="pagination">
+            <?php if ($page > 1): ?>
+              <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $page - 1])); ?>">
+                <i class="fas fa-chevron-left"></i>
+              </a>
+            <?php endif; ?>
 
-        <article class="blog-card">
-          <div class="blog-card-image">
-            <img src="uploads/1752583197_anugra-blog.jpg" alt="Sikkim Travel Guide">
-            <span class="blog-badge">Guide</span>
-          </div>
-          <div class="blog-content">
-            <h3>🌿 A Month-by-Month Travel Guide to Sikkim Changing Landscapes</h3>
-            <p class="blog-excerpt">Plan your perfect Sikkim adventure with our comprehensive month-by-month guide to the region's ever-changing landscapes and seasonal highlights...</p>
-            <div class="blog-meta">
-              <span class="blog-author">
-                <i class="fas fa-user"></i>
-                Travel Guide
-              </span>
-              <span class="blog-date">
-                <i class="fas fa-calendar"></i>
-                5 days ago
-              </span>
-            </div>
-            <a href="blog-view.php?slug=sikkim-travel-guide-month-by-month" class="read-more-btn">
-              Read More <i class="fas fa-arrow-right"></i>
-            </a>
-          </div>
-        </article>
+            <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+              <?php if ($i == $page): ?>
+                <span class="current"><?php echo $i; ?></span>
+              <?php else: ?>
+                <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $i])); ?>">
+                  <?php echo $i; ?>
+                </a>
+              <?php endif; ?>
+            <?php endfor; ?>
 
-        <article class="blog-card">
-          <div class="blog-card-image">
-            <img src="uploads/1752496963_sikkimAnugra_travels.jpeg" alt="Discover Sikkim">
-            <span class="blog-badge">Adventure</span>
+            <?php if ($page < $total_pages): ?>
+              <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $page + 1])); ?>">
+                <i class="fas fa-chevron-right"></i>
+              </a>
+            <?php endif; ?>
           </div>
-          <div class="blog-content">
-            <h3>Discover Sikkim: The Hidden Himalayan Paradise</h3>
-            <p class="blog-excerpt">Uncover the secrets of Sikkim, a hidden gem in the Himalayas where ancient monasteries, pristine lakes, and towering peaks create an unforgettable experience...</p>
-            <div class="blog-meta">
-              <span class="blog-author">
-                <i class="fas fa-user"></i>
-                Travel Guide
-              </span>
-              <span class="blog-date">
-                <i class="fas fa-calendar"></i>
-                6 days ago
-              </span>
-            </div>
-            <a href="blog-view.php?slug=discover-sikkim-hidden-himalayan-paradise" class="read-more-btn">
-              Read More <i class="fas fa-arrow-right"></i>
-            </a>
-          </div>
-        </article>
-
-        <article class="blog-card">
-          <div class="blog-card-image">
-            <img src="uploads/1752851772_blog.webp" alt="Monsoon Magic">
-            <span class="blog-badge">Seasonal</span>
-          </div>
-          <div class="blog-content">
-            <h3>Enchanting Escapes: Monsoon Magic in North East India</h3>
-            <p class="blog-excerpt">Experience the mystical beauty of North East India during monsoon season, when lush green landscapes and cascading waterfalls create a magical atmosphere...</p>
-            <div class="blog-meta">
-              <span class="blog-author">
-                <i class="fas fa-user"></i>
-                Travel Guide
-              </span>
-              <span class="blog-date">
-                <i class="fas fa-calendar"></i>
-                1 day ago
-              </span>
-            </div>
-            <a href="blog-view.php?slug=monsoon-magic-northeast-india-anugra-tours" class="read-more-btn">
-              Read More <i class="fas fa-arrow-right"></i>
-            </a>
-          </div>
-        </article>
-
-        <article class="blog-card">
-          <div class="blog-card-image">
-            <img src="uploads/1752770603_anugra-img.jpg" alt="Hidden Gems">
-            <span class="blog-badge">Top 5</span>
-          </div>
-          <div class="blog-content">
-            <h3>Top 5 Hidden Gems of North East India You Must Visit</h3>
-            <p class="blog-excerpt">Discover the lesser-known treasures of North East India that offer breathtaking beauty, rich culture, and unforgettable experiences away from the crowds...</p>
-            <div class="blog-meta">
-              <span class="blog-author">
-                <i class="fas fa-user"></i>
-                Travel Guide
-              </span>
-              <span class="blog-date">
-                <i class="fas fa-calendar"></i>
-                2 days ago
-              </span>
-            </div>
-            <a href="blog-view.php?slug=top-5-hidden-gems-northeast-india-anugra-tours" class="read-more-btn">
-              Read More <i class="fas fa-arrow-right"></i>
-            </a>
-          </div>
-        </article>
-      </div>
+        <?php endif; ?>
+      <?php endif; ?>
     </section>
 
     <!-- Newsletter Section -->
     <section class="newsletter-section">
       <h3>Stay Updated</h3>
       <p>Get the latest travel stories and destination guides delivered to your inbox</p>
-      <form class="newsletter-form">
-        <input type="email" placeholder="Enter your email" required>
+      <form class="newsletter-form" action="newsletter-subscribe.php" method="POST">
+        <input type="email" name="email" placeholder="Enter your email" required>
         <button type="submit">Subscribe</button>
       </form>
     </section>
-
-    <!-- Pagination -->
-    <div class="pagination">
-      <a href="#"><i class="fas fa-chevron-left"></i></a>
-      <span class="current">1</span>
-      <a href="#">2</a>
-      <a href="#">3</a>
-      <span>...</span>
-      <a href="#">10</a>
-      <a href="#"><i class="fas fa-chevron-right"></i></a>
-    </div>
   </div>
 
 <!-- Footer -->
@@ -748,28 +786,30 @@
 
 <script src="js/script.js"></script>
 <script>
-  // Category tab functionality
-  document.querySelectorAll('.category-tab').forEach(tab => {
-    tab.addEventListener('click', function() {
-      document.querySelectorAll('.category-tab').forEach(t => t.classList.remove('active'));
-      this.classList.add('active');
-    });
-  });
-
-  // Search functionality (placeholder)
-  document.querySelector('.search-box button').addEventListener('click', function(e) {
-    e.preventDefault();
-    const query = document.querySelector('.search-box input').value;
-    console.log('Searching for:', query);
-    // Add actual search functionality here
-  });
-
-  // Newsletter form (placeholder)
+  // Newsletter form
   document.querySelector('.newsletter-form').addEventListener('submit', function(e) {
     e.preventDefault();
     const email = this.querySelector('input[type="email"]').value;
-    alert('Thank you for subscribing! We\'ll keep you updated.');
-    this.reset();
+    
+    fetch('newsletter-subscribe.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'email=' + encodeURIComponent(email)
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        alert('Thank you for subscribing! We\'ll keep you updated.');
+        this.reset();
+      } else {
+        alert(data.message || 'There was an error. Please try again.');
+      }
+    })
+    .catch(error => {
+      alert('There was an error. Please try again.');
+    });
   });
 </script>
 

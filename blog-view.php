@@ -1,9 +1,160 @@
+<?php
+require_once 'config/database.php';
+
+// Get blog slug from URL
+$slug = isset($_GET['slug']) ? trim($_GET['slug']) : '';
+
+if (empty($slug)) {
+    header('Location: blogs.php');
+    exit();
+}
+
+// Get blog details
+$blog_sql = "SELECT b.*, bc.name as category_name 
+             FROM blogs b 
+             LEFT JOIN blog_categories bc ON b.category = bc.id 
+             WHERE b.slug = :slug AND b.status = 'published'";
+$blog_stmt = $pdo->prepare($blog_sql);
+$blog_stmt->execute([':slug' => $slug]);
+$blog = $blog_stmt->fetch();
+
+if (!$blog) {
+    header('Location: blogs.php');
+    exit();
+}
+
+// Get like count
+$like_sql = "SELECT COUNT(*) FROM likes WHERE blog_id = :blog_id";
+$like_stmt = $pdo->prepare($like_sql);
+$like_stmt->execute([':blog_id' => $blog['id']]);
+$like_count = $like_stmt->fetchColumn();
+
+// Check if user has liked this blog (by IP)
+$user_ip = $_SERVER['REMOTE_ADDR'];
+$user_liked_sql = "SELECT COUNT(*) FROM likes WHERE blog_id = :blog_id AND user_ip = :user_ip";
+$user_liked_stmt = $pdo->prepare($user_liked_sql);
+$user_liked_stmt->execute([':blog_id' => $blog['id'], ':user_ip' => $user_ip]);
+$user_has_liked = $user_liked_stmt->fetchColumn() > 0;
+
+// Get recent blogs (exclude current)
+$recent_sql = "SELECT id, title, slug, image, created_at 
+               FROM blogs 
+               WHERE status = 'published' AND id != :current_id 
+               ORDER BY created_at DESC 
+               LIMIT 4";
+$recent_stmt = $pdo->prepare($recent_sql);
+$recent_stmt->execute([':current_id' => $blog['id']]);
+$recent_blogs = $recent_stmt->fetchAll();
+
+// Get popular blogs (by likes - exclude current)
+$popular_sql = "SELECT b.id, b.title, b.slug, b.image, COUNT(l.id) as like_count
+                FROM blogs b 
+                LEFT JOIN likes l ON b.id = l.blog_id 
+                WHERE b.status = 'published' AND b.id != :current_id 
+                GROUP BY b.id 
+                ORDER BY like_count DESC, b.created_at DESC 
+                LIMIT 3";
+$popular_stmt = $pdo->prepare($popular_sql);
+$popular_stmt->execute([':current_id' => $blog['id']]);
+$popular_blogs = $popular_stmt->fetchAll();
+
+// Get comments for this blog
+$comments_sql = "SELECT id, name, email, comment, parent_id, created_at 
+                 FROM blog_comments 
+                 WHERE blog_id = :blog_id AND status = 'approved' 
+                 ORDER BY created_at ASC";
+$comments_stmt = $pdo->prepare($comments_sql);
+$comments_stmt->execute([':blog_id' => $blog['id']]);
+$all_comments = $comments_stmt->fetchAll();
+
+// Organize comments in a tree structure
+function organizeComments($comments) {
+    $organized = [];
+    $children = [];
+    
+    foreach ($comments as $comment) {
+        if ($comment['parent_id'] == 0) {
+            $organized[$comment['id']] = $comment;
+            $organized[$comment['id']]['children'] = [];
+        } else {
+            $children[$comment['parent_id']][] = $comment;
+        }
+    }
+    
+    foreach ($children as $parent_id => $child_comments) {
+        if (isset($organized[$parent_id])) {
+            $organized[$parent_id]['children'] = $child_comments;
+        }
+    }
+    
+    return $organized;
+}
+
+$comments = organizeComments($all_comments);
+
+// Handle comment submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['comment'])) {
+    $name = trim($_POST['name']);
+    $email = trim($_POST['email']);
+    $comment_text = trim($_POST['comment']);
+    $parent_id = (int)$_POST['parent_id'];
+    
+    if (!empty($name) && !empty($comment_text)) {
+        $insert_comment_sql = "INSERT INTO blog_comments (blog_id, name, email, comment, parent_id, status, created_at) 
+                               VALUES (:blog_id, :name, :email, :comment, :parent_id, 'pending', NOW())";
+        $insert_stmt = $pdo->prepare($insert_comment_sql);
+        $insert_stmt->execute([
+            ':blog_id' => $blog['id'],
+            ':name' => $name,
+            ':email' => $email,
+            ':comment' => $comment_text,
+            ':parent_id' => $parent_id
+        ]);
+        
+        $success_message = "Thank you for your comment! It will appear after moderation.";
+        header("Location: blog-view.php?slug=" . urlencode($slug) . "&comment_success=1");
+        exit();
+    }
+}
+
+// Helper functions
+function timeAgo($date) {
+    $time = time() - strtotime($date);
+    
+    if ($time < 60) return 'just now';
+    if ($time < 3600) return floor($time/60) . ' minutes ago';
+    if ($time < 86400) return floor($time/3600) . ' hours ago';
+    if ($time < 2592000) return floor($time/86400) . ' days ago';
+    if ($time < 31536000) return floor($time/2592000) . ' months ago';
+    return floor($time/31536000) . ' years ago';
+}
+
+function getReadingTime($content) {
+    $word_count = str_word_count(strip_tags($content));
+    $reading_time = ceil($word_count / 200); // Average reading speed
+    return $reading_time;
+}
+
+// SEO Meta tags
+$page_title = !empty($blog['seo_title']) ? $blog['seo_title'] : $blog['title'] . ' | Anugra Tours';
+$page_description = !empty($blog['seo_description']) ? $blog['seo_description'] : substr(strip_tags($blog['content']), 0, 160);
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Darjeeling Dreams: Discover the Queen of Hills with Anugra | Anugra Tours</title>
+  <title><?php echo htmlspecialchars($page_title); ?></title>
+  <meta name="description" content="<?php echo htmlspecialchars($page_description); ?>">
+  <meta name="keywords" content="<?php echo htmlspecialchars($blog['tags']); ?>">
+  
+  <!-- Open Graph Meta Tags -->
+  <meta property="og:title" content="<?php echo htmlspecialchars($blog['title']); ?>">
+  <meta property="og:description" content="<?php echo htmlspecialchars($page_description); ?>">
+  <meta property="og:image" content="<?php echo $blog['image'] ? htmlspecialchars($blog['image']) : 'uploads/default-blog.jpg'; ?>">
+  <meta property="og:url" content="<?php echo 'https://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']; ?>">
+  <meta property="og:type" content="article">
+  
   <link rel="stylesheet" href="styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -183,6 +334,13 @@
     .likes form button:hover {
       transform: translateY(-2px);
       box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+    }
+
+    .likes form button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
     }
 
     .social-share {
@@ -403,6 +561,50 @@
       box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
     }
 
+    .comment {
+      margin: 20px 0;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 10px;
+      border-left: 4px solid #667eea;
+    }
+
+    .comment-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .comment-author {
+      font-weight: 600;
+      color: #2c3e50;
+    }
+
+    .comment-date {
+      font-size: 0.85rem;
+      color: #888;
+    }
+
+    .comment-text {
+      line-height: 1.6;
+      color: #333;
+    }
+
+    .comment-replies {
+      margin-left: 30px;
+      margin-top: 20px;
+    }
+
+    .success-message {
+      background: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      border: 1px solid #c3e6cb;
+    }
+
     /* Responsive Design */
     @media (max-width: 1024px) {
       .blog-view-container {
@@ -545,22 +747,30 @@
   <main class="main-content">
     <!-- Blog Header -->
     <header class="blog-header">
-      <img src="uploads/1752674104_Darjeeling-anugra.webp" alt="Darjeeling Dreams" class="blog-header-image">
+      <?php if ($blog['image']): ?>
+        <img src="<?php echo htmlspecialchars($blog['image']); ?>" alt="<?php echo htmlspecialchars($blog['title']); ?>" class="blog-header-image">
+      <?php endif; ?>
       <div class="blog-header-content">
-        <h1>Darjeeling Dreams: Discover the Queen of Hills with Anugra</h1>
+        <h1><?php echo htmlspecialchars($blog['title']); ?></h1>
         <div class="blog-meta-header">
           <span class="meta-item">
             <i class="fas fa-calendar-alt"></i>
-            16 Jul 2025
+            <?php echo date('M d, Y', strtotime($blog['created_at'])); ?>
           </span>
           <span class="meta-item">
             <i class="fas fa-clock"></i>
-            5 min read
+            <?php echo getReadingTime($blog['content']); ?> min read
           </span>
           <span class="meta-item">
             <i class="fas fa-user"></i>
-            Anugra Travel Guide
+            <?php echo htmlspecialchars($blog['author']); ?>
           </span>
+          <?php if ($blog['category_name']): ?>
+          <span class="meta-item">
+            <i class="fas fa-folder"></i>
+            <?php echo htmlspecialchars($blog['category_name']); ?>
+          </span>
+          <?php endif; ?>
         </div>
       </div>
     </header>
@@ -568,80 +778,64 @@
     <!-- Blog Body -->
     <article class="blog-body">
       <!-- Tags -->
-      <div class="blog-tags">
-        <h4>Tags:</h4>
-        <span class="tag">Darjeeling tour</span>
-        <span class="tag">Darjeeling travel</span>
-        <span class="tag">Darjeeling packages</span>
-        <span class="tag">Tea gardens</span>
-        <span class="tag">Toy train ride</span>
-        <span class="tag">Kanchenjunga view</span>
-        <span class="tag">Queen of Hills</span>
-      </div>
+      <?php if (!empty($blog['tags'])): ?>
+        <div class="blog-tags">
+          <h4>Tags:</h4>
+          <?php 
+          $tags = explode(',', $blog['tags']);
+          foreach ($tags as $tag): 
+            $tag = trim($tag);
+            if (!empty($tag)):
+          ?>
+            <span class="tag"><?php echo htmlspecialchars($tag); ?></span>
+          <?php 
+            endif;
+          endforeach; 
+          ?>
+        </div>
+      <?php endif; ?>
 
       <!-- Content -->
       <div class="content">
-        <b>Darjeeling Diaries with Anugra Tours and Travels: Your Perfect Himalayan Getaway</b>
-        <p>Welcome to Darjeeling, the crown jewel of the Eastern Himalayas! Nestled amidst emerald tea gardens and kissed by the morning sun over Kanchenjunga, Darjeeling is a dream destination for nature lovers, tea connoisseurs, and adventure seekers alike. With Anugra Tours and Travels, your journey to this hill paradise becomes not just a trip—but a cherished memory.</p>
-        
-        <b>Why Visit Darjeeling with Anugra Tours and Travels?</b>
-        <p>At <b>Anugra Tours and Travels</b>, we believe in crafting soulful travel experiences. Whether you're a solo explorer, a honeymooning couple, or a family looking for a scenic break, our carefully curated Darjeeling packages ensure comfort, adventure, and unforgettable views.</p>
-        
-        <b>Top Attractions in Our Darjeeling Package</b>
-        <ul>
-          <li><b>Tiger Hill Sunrise:</b> Witness the breathtaking sunrise over Kanchenjunga, and on clear mornings, get a rare view of Mount Everest.</li>
-          <li><b>Darjeeling Himalayan Railway (Toy Train):</b> Ride the iconic UNESCO World Heritage toy train through tea gardens and hillsides.</li>
-          <li><b>Batasia Loop & War Memorial:</b> Enjoy a 360° view of Darjeeling with snow-covered peaks in the backdrop.</li>
-          <li><b>Padmaja Naidu Zoological Park:</b> Meet rare Himalayan wildlife including the Red Panda and Snow Leopard.</li>
-          <li><b>Peace Pagoda:</b> Experience spiritual calm and panoramic town views from this serene Japanese structure.</li>
-          <li><b>Tea Estate Walk:</b> Visit Happy Valley Tea Estate and taste freshly brewed world-famous Darjeeling Tea.</li>
-        </ul>
-        
-        <b>Explore Local Culture & Cuisine</b>
-        <p>Darjeeling is a beautiful blend of cultures—Nepali, Tibetan, Lepcha, and Bengali. Our guided tours give you an authentic glimpse into local life. Try delicious momos, thukpa, churpi, and sip aromatic Darjeeling tea. Don't miss the charming Mall Road and vibrant local markets.</p>
-        
-        <b>Why Book With Anugra?</b>
-        <ul>
-          <li>🚗 Pick-up & drop from Siliguri, NJP, Bagdogra, or Gangtok</li>
-          <li>🏨 Hand-picked hotels with scenic views</li>
-          <li>🧑‍🤝‍🧑 Friendly guides and local expertise</li>
-          <li>📷 Sightseeing, cultural tours, and photography points</li>
-          <li>📞 24x7 support throughout your trip</li>
-        </ul>
-        
-        <b>Travel Tips</b>
-        <ul>
-          <li>📅 Best time to visit: March–May or October–December</li>
-          <li>🧣 Carry light woollens even in summer</li>
-          <li>📸 Keep your camera ready for postcard-perfect views</li>
-        </ul>
-        
-        <b>Plan Your Darjeeling Tour with Us</b>
-        <p>Let <b>Anugra Tours and Travels</b> take you on a seamless, scenic, and soul-soothing trip to the Queen of Hills. Our local team ensures every detail is handled, so you can relax and enjoy every view, every sip of tea, and every smile along the way.</p>
-        
-        <p><b>📍 Office:</b> Lingding, Gangtok, Sikkim<br><b>📞 Call:</b> +91 97321 81111<br><b>🌐 Website:</b> <a href="https://anugratravels.com/" target="_blank">www.anugratravels.com</a></p>
+        <?php echo $blog['content']; ?>
       </div>
 
       <!-- Engagement Section -->
       <div class="engagement-section">
         <div class="likes">
           <div class="like-count">
-            <strong>0 <i class="fas fa-heart" style="color:red;"></i></strong>
+            <strong><?php echo $like_count; ?> <i class="fas fa-heart" style="color:red;"></i></strong>
           </div>
           <form method="POST" action="like.php">
-            <input type="hidden" name="blog_id" value="16">
-            <input type="hidden" name="slug" value="/explore-darjeeling-with-anugra">
-            <button type="submit"><i class="fas fa-thumbs-up"></i> Like this post</button>
+            <input type="hidden" name="blog_id" value="<?php echo $blog['id']; ?>">
+            <input type="hidden" name="slug" value="<?php echo htmlspecialchars($blog['slug']); ?>">
+            <button type="submit" <?php echo $user_has_liked ? 'disabled' : ''; ?>>
+              <i class="fas fa-thumbs-up"></i> 
+              <?php echo $user_has_liked ? 'Liked' : 'Like this post'; ?>
+            </button>
           </form>
         </div>
 
         <div class="social-share">
           <h3>🔗 Share this post:</h3>
           <div class="social-buttons">
-            <a href="https://www.facebook.com/sharer/sharer.php?u=https%3A%2F%2Fanugratravels.com%2F%2Fblog-view.php%3Fslug%3D%252Fexplore-darjeeling-with-anugra" target="_blank"><i class="fab fa-facebook"></i>Facebook</a>
-            <a href="https://twitter.com/intent/tweet?url=https%3A%2F%2Fanugratravels.com%2F%2Fblog-view.php%3Fslug%3D%252Fexplore-darjeeling-with-anugra&text=Darjeeling+Dreams%3A+Discover+the+Queen+of+Hills+with+Anugra" target="_blank"><i class="fab fa-twitter"></i>Twitter</a>
-            <a href="https://api.whatsapp.com/send?text=Darjeeling+Dreams%3A+Discover+the+Queen+of+Hills+with+Anugra+https%3A%2F%2Fanugratravels.com%2F%2Fblog-view.php%3Fslug%3D%252Fexplore-darjeeling-with-anugra" target="_blank"><i class="fab fa-whatsapp"></i>WhatsApp</a>
-            <a href="#" onclick="navigator.clipboard.writeText('https://anugratravels.com//blog-view.php?slug=%2Fexplore-darjeeling-with-anugra'); alert('Link copied!')"><i class="fas fa-link"></i>Copy Link</a>
+            <?php 
+            $current_url = 'https://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+            $encoded_url = urlencode($current_url);
+            $encoded_title = urlencode($blog['title']);
+            ?>
+            <a href="https://www.facebook.com/sharer/sharer.php?u=<?php echo $encoded_url; ?>" target="_blank">
+              <i class="fab fa-facebook"></i>Facebook
+            </a>
+            <a href="https://twitter.com/intent/tweet?url=<?php echo $encoded_url; ?>&text=<?php echo $encoded_title; ?>" target="_blank">
+              <i class="fab fa-twitter"></i>Twitter
+            </a>
+            <a href="https://api.whatsapp.com/send?text=<?php echo $encoded_title; ?>%20<?php echo $encoded_url; ?>" target="_blank">
+              <i class="fab fa-whatsapp"></i>WhatsApp
+            </a>
+            <a href="#" onclick="navigator.clipboard.writeText('<?php echo $current_url; ?>'); alert('Link copied!')">
+              <i class="fas fa-link"></i>Copy Link
+            </a>
           </div>
         </div>
       </div>
@@ -660,90 +854,54 @@
     </div>
 
     <!-- Recent Blogs -->
+    <?php if (!empty($recent_blogs)): ?>
     <div class="sidebar-widget">
       <div class="widget-header">
         <h3><i class="fas fa-clock"></i> Recent Posts</h3>
       </div>
       <div class="widget-content">
-        <article class="recent-post">
-          <img src="uploads/1752933363_lachung-anugra.webp" alt="Lachung Village" class="recent-post-image">
-          <div class="recent-post-content">
-            <h4><a href="blog-view.php?slug=lachung-village-north-sikkim-travel-guide-anugra-tours">Lachung Village: Discover the Snowy Gem of North Sikkim</a></h4>
-            <div class="recent-post-meta">
-              <i class="fas fa-calendar"></i> Today
+        <?php foreach ($recent_blogs as $recent): ?>
+          <article class="recent-post">
+            <img src="<?php echo $recent['image'] ? htmlspecialchars($recent['image']) : 'uploads/default-blog.jpg'; ?>" 
+                 alt="<?php echo htmlspecialchars($recent['title']); ?>" class="recent-post-image">
+            <div class="recent-post-content">
+              <h4><a href="blog-view.php?slug=<?php echo urlencode($recent['slug']); ?>">
+                <?php echo htmlspecialchars($recent['title']); ?>
+              </a></h4>
+              <div class="recent-post-meta">
+                <i class="fas fa-calendar"></i> <?php echo timeAgo($recent['created_at']); ?>
+              </div>
             </div>
-          </div>
-        </article>
-
-        <article class="recent-post">
-          <img src="uploads/1752583197_anugra-blog.jpg" alt="Sikkim Travel Guide" class="recent-post-image">
-          <div class="recent-post-content">
-            <h4><a href="blog-view.php?slug=sikkim-travel-guide-month-by-month">🌿 A Month-by-Month Travel Guide to Sikkim</a></h4>
-            <div class="recent-post-meta">
-              <i class="fas fa-calendar"></i> 5 days ago
-            </div>
-          </div>
-        </article>
-
-        <article class="recent-post">
-          <img src="uploads/1752496963_sikkimAnugra_travels.jpeg" alt="Discover Sikkim" class="recent-post-image">
-          <div class="recent-post-content">
-            <h4><a href="blog-view.php?slug=discover-sikkim-hidden-himalayan-paradise">Discover Sikkim: The Hidden Himalayan Paradise</a></h4>
-            <div class="recent-post-meta">
-              <i class="fas fa-calendar"></i> 6 days ago
-            </div>
-          </div>
-        </article>
-
-        <article class="recent-post">
-          <img src="uploads/1752851772_blog.webp" alt="Monsoon Magic" class="recent-post-image">
-          <div class="recent-post-content">
-            <h4><a href="blog-view.php?slug=monsoon-magic-northeast-india-anugra-tours">Enchanting Escapes: Monsoon Magic in North East India</a></h4>
-            <div class="recent-post-meta">
-              <i class="fas fa-calendar"></i> 1 day ago
-            </div>
-          </div>
-        </article>
+          </article>
+        <?php endforeach; ?>
       </div>
     </div>
+    <?php endif; ?>
 
     <!-- Popular Posts -->
+    <?php if (!empty($popular_blogs)): ?>
     <div class="sidebar-widget">
       <div class="widget-header">
         <h3><i class="fas fa-fire"></i> Most Popular</h3>
       </div>
       <div class="widget-content">
-        <article class="recent-post">
-          <img src="uploads/1752674104_Darjeeling-anugra.webp" alt="Darjeeling Dreams" class="recent-post-image">
-          <div class="recent-post-content">
-            <h4><a href="blog-view.php?slug=%2Fexplore-darjeeling-with-anugra">Darjeeling Dreams: Discover the Queen of Hills</a></h4>
-            <div class="recent-post-meta">
-              <i class="fas fa-eye"></i> 1,254 views
+        <?php foreach ($popular_blogs as $popular): ?>
+          <article class="recent-post">
+            <img src="<?php echo $popular['image'] ? htmlspecialchars($popular['image']) : 'uploads/default-blog.jpg'; ?>" 
+                 alt="<?php echo htmlspecialchars($popular['title']); ?>" class="recent-post-image">
+            <div class="recent-post-content">
+              <h4><a href="blog-view.php?slug=<?php echo urlencode($popular['slug']); ?>">
+                <?php echo htmlspecialchars($popular['title']); ?>
+              </a></h4>
+              <div class="recent-post-meta">
+                <i class="fas fa-heart"></i> <?php echo $popular['like_count']; ?> likes
+              </div>
             </div>
-          </div>
-        </article>
-
-        <article class="recent-post">
-          <img src="uploads/1752770603_anugra-img.jpg" alt="Hidden Gems" class="recent-post-image">
-          <div class="recent-post-content">
-            <h4><a href="blog-view.php?slug=top-5-hidden-gems-northeast-india-anugra-tours">Top 5 Hidden Gems of North East India</a></h4>
-            <div class="recent-post-meta">
-              <i class="fas fa-eye"></i> 987 views
-            </div>
-          </div>
-        </article>
-
-        <article class="recent-post">
-          <img src="uploads/1752933363_lachung-anugra.webp" alt="Lachung Village" class="recent-post-image">
-          <div class="recent-post-content">
-            <h4><a href="blog-view.php?slug=lachung-village-north-sikkim-travel-guide-anugra-tours">Lachung Village: Snowy Gem of North Sikkim</a></h4>
-            <div class="recent-post-meta">
-              <i class="fas fa-eye"></i> 743 views
-            </div>
-          </div>
-        </article>
+          </article>
+        <?php endforeach; ?>
       </div>
     </div>
+    <?php endif; ?>
 
     <!-- Google Ad Space 2 -->
     <div class="sidebar-widget">
@@ -755,25 +913,28 @@
     </div>
 
     <!-- Popular Tags -->
+    <?php if (!empty($blog['tags'])): ?>
     <div class="sidebar-widget">
       <div class="widget-header">
-        <h3><i class="fas fa-tags"></i> Popular Tags</h3>
+        <h3><i class="fas fa-tags"></i> Related Tags</h3>
       </div>
       <div class="widget-content">
         <div class="popular-tags">
-          <a href="#" class="popular-tag">Sikkim Tours</a>
-          <a href="#" class="popular-tag">Darjeeling</a>
-          <a href="#" class="popular-tag">North East India</a>
-          <a href="#" class="popular-tag">Gangtok</a>
-          <a href="#" class="popular-tag">Adventure</a>
-          <a href="#" class="popular-tag">Himalayas</a>
-          <a href="#" class="popular-tag">Tea Gardens</a>
-          <a href="#" class="popular-tag">Travel Tips</a>
-          <a href="#" class="popular-tag">Culture</a>
-          <a href="#" class="popular-tag">Photography</a>
+          <?php 
+          $tags = explode(',', $blog['tags']);
+          foreach ($tags as $tag): 
+            $tag = trim($tag);
+            if (!empty($tag)):
+          ?>
+            <a href="blogs.php?search=<?php echo urlencode($tag); ?>" class="popular-tag"><?php echo htmlspecialchars($tag); ?></a>
+          <?php 
+            endif;
+          endforeach; 
+          ?>
         </div>
       </div>
     </div>
+    <?php endif; ?>
 
     <!-- Newsletter Signup -->
     <div class="sidebar-widget">
@@ -782,8 +943,8 @@
       </div>
       <div class="widget-content">
         <p style="margin-bottom: 20px; color: #666;">Get the latest travel stories delivered to your inbox.</p>
-        <form style="display: flex; flex-direction: column; gap: 15px;">
-          <input type="email" placeholder="Your email address" style="padding: 12px; border: 2px solid #e9ecef; border-radius: 10px; outline: none;">
+        <form style="display: flex; flex-direction: column; gap: 15px;" action="newsletter-subscribe.php" method="POST">
+          <input type="email" name="email" placeholder="Your email address" style="padding: 12px; border: 2px solid #e9ecef; border-radius: 10px; outline: none;" required>
           <button type="submit" style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 12px; border-radius: 10px; font-weight: 600;">Subscribe</button>
         </form>
       </div>
@@ -794,7 +955,13 @@
 <!-- Comments Section -->
 <div class="comments-section" style="max-width: 1400px; margin: 0 auto; padding: 0 20px;">
   <div class="comments">
-    <h3>💬 Comments</h3>
+    <h3>💬 Comments (<?php echo count($comments); ?>)</h3>
+    
+    <?php if (isset($_GET['comment_success'])): ?>
+      <div class="success-message">
+        <i class="fas fa-check-circle"></i> Thank you for your comment! It will appear after moderation.
+      </div>
+    <?php endif; ?>
     
     <div class="comment-form">
       <h4 style="margin-bottom: 20px; color: #2c3e50;">Leave a Comment</h4>
@@ -802,14 +969,45 @@
         <input name="name" placeholder="Your Name" required>
         <input type="email" name="email" placeholder="Email (optional)">
         <textarea name="comment" rows="4" placeholder="Your comment..." required></textarea>
-        <input type="hidden" name="parent_id" value="">
+        <input type="hidden" name="parent_id" value="0">
         <button type="submit"><i class="fas fa-comment-dots"></i> Submit Comment</button>
       </form>
     </div>
 
-    <div style="text-align: center; color: #888; padding: 40px 0;">
-      <p>No comments yet. Be the first to share your thoughts!</p>
-    </div>
+    <?php if (empty($comments)): ?>
+      <div style="text-align: center; color: #888; padding: 40px 0;">
+        <p>No comments yet. Be the first to share your thoughts!</p>
+      </div>
+    <?php else: ?>
+      <?php foreach ($comments as $comment): ?>
+        <div class="comment">
+          <div class="comment-header">
+            <span class="comment-author"><?php echo htmlspecialchars($comment['name']); ?></span>
+            <span class="comment-date"><?php echo timeAgo($comment['created_at']); ?></span>
+          </div>
+          <div class="comment-text">
+            <?php echo nl2br(htmlspecialchars($comment['comment'])); ?>
+          </div>
+          
+          <!-- Replies -->
+          <?php if (!empty($comment['children'])): ?>
+            <div class="comment-replies">
+              <?php foreach ($comment['children'] as $reply): ?>
+                <div class="comment">
+                  <div class="comment-header">
+                    <span class="comment-author"><?php echo htmlspecialchars($reply['name']); ?></span>
+                    <span class="comment-date"><?php echo timeAgo($reply['created_at']); ?></span>
+                  </div>
+                  <div class="comment-text">
+                    <?php echo nl2br(htmlspecialchars($reply['comment'])); ?>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php endif; ?>
+        </div>
+      <?php endforeach; ?>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -894,22 +1092,30 @@
 
 <script src="js/script.js"></script>
 <script>
-  // Reply button functionality
-  document.querySelectorAll('.reply-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.preventDefault();
-      const id = btn.dataset.id;
-      document.querySelectorAll('.reply-form').forEach(f => f.style.display = 'none');
-      document.getElementById('reply-form-' + id).style.display = 'block';
-    });
-  });
-
   // Newsletter signup
   document.querySelector('.sidebar .widget-content form').addEventListener('submit', function(e) {
     e.preventDefault();
     const email = this.querySelector('input[type="email"]').value;
-    alert('Thank you for subscribing! We\'ll keep you updated with our latest travel stories.');
-    this.reset();
+    
+    fetch('newsletter-subscribe.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'email=' + encodeURIComponent(email)
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        alert('Thank you for subscribing! We\'ll keep you updated with our latest travel stories.');
+        this.reset();
+      } else {
+        alert(data.message || 'There was an error. Please try again.');
+      }
+    })
+    .catch(error => {
+      alert('There was an error. Please try again.');
+    });
   });
 
   // Smooth scroll for internal links
