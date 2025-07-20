@@ -20,14 +20,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo = getConnection();
             
-            // Get room price
+            // Get room price and validate room exists
             $stmt = $pdo->prepare("SELECT price_per_night FROM rooms WHERE id = ?");
             $stmt->execute([$room_id]);
-            $room_price = $stmt->fetch(PDO::FETCH_ASSOC)['price_per_night'];
+            $room_data = $stmt->fetch(PDO::FETCH_ASSOC);
             
-            // Calculate total amount
+            if (!$room_data) {
+                throw new Exception("Selected room not found");
+            }
+            
+            $room_price = $room_data['price_per_night'];
+            
+            // Validate dates
             $check_in_date = new DateTime($check_in);
             $check_out_date = new DateTime($check_out);
+            
+            if ($check_out_date <= $check_in_date) {
+                throw new Exception("Check-out date must be after check-in date");
+            }
+            
+            // Check room availability
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM bookings WHERE room_id = ? AND status != 'cancelled' AND ((check_in <= ? AND check_out > ?) OR (check_in < ? AND check_out >= ?))");
+            $stmt->execute([$room_id, $check_in, $check_in, $check_out, $check_out]);
+            $conflicts = $stmt->fetchColumn();
+            
+            if ($conflicts > 0) {
+                throw new Exception("Room is not available for the selected dates");
+            }
+            
+            // Calculate total amount (dates already validated above)
             $nights = $check_in_date->diff($check_out_date)->days;
             $total_amount = $room_price * $nights;
             
@@ -38,6 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success_message = "Walk-in booking created successfully!";
         } catch(PDOException $e) {
             $error_message = "Error creating walk-in booking: " . $e->getMessage();
+        } catch(Exception $e) {
+            $error_message = $e->getMessage();
         }
     }
     
@@ -166,11 +189,15 @@ try {
     $all_rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
 } catch(PDOException $e) {
+    $error_message = "Database error: " . $e->getMessage();
     $bookings = [];
     $room_types = [];
     $booking_sources = [];
     $expense_items = [];
     $all_rooms = [];
+    
+    // Log the error for debugging
+    error_log("Bookings.php database error: " . $e->getMessage());
 }
 ?>
 
@@ -369,27 +396,91 @@ try {
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
         }
 
+        .table-responsive {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .table-responsive::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .table-responsive::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .table-responsive::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .table-responsive::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
+
+        /* Add scroll indicator shadow */
+        .table-responsive::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 20px;
+            height: 100%;
+            background: linear-gradient(to left, rgba(255,255,255,0.8), transparent);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .table-responsive.scrollable::after {
+            opacity: 1;
+        }
+
         .table {
             width: 100%;
             border-collapse: collapse;
+            min-width: 1200px; /* Ensure minimum width for proper column display */
         }
 
         .table th,
         .table td {
-            padding: 1rem;
+            padding: 0.75rem 0.5rem;
             text-align: left;
             border-bottom: 1px solid #eee;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .table th {
             background: #f8f9fa;
             font-weight: bold;
             color: #2c3e50;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
 
         .table tr:hover {
             background: #f8f9fa;
         }
+
+        /* Column width optimization */
+        .table th:nth-child(1), .table td:nth-child(1) { min-width: 150px; max-width: 200px; } /* Guest Name */
+        .table th:nth-child(2), .table td:nth-child(2) { min-width: 120px; max-width: 150px; } /* Room */
+        .table th:nth-child(3), .table td:nth-child(3) { min-width: 100px; max-width: 120px; } /* Check-in */
+        .table th:nth-child(4), .table td:nth-child(4) { min-width: 100px; max-width: 120px; } /* Check-out */
+        .table th:nth-child(5), .table td:nth-child(5) { min-width: 60px; max-width: 80px; text-align: center; } /* Guests */
+        .table th:nth-child(6), .table td:nth-child(6) { min-width: 100px; max-width: 120px; text-align: right; } /* Room Amount */
+        .table th:nth-child(7), .table td:nth-child(7) { min-width: 80px; max-width: 100px; text-align: right; } /* Expenses */
+        .table th:nth-child(8), .table td:nth-child(8) { min-width: 100px; max-width: 120px; text-align: right; } /* Total */
+        .table th:nth-child(9), .table td:nth-child(9) { min-width: 100px; max-width: 120px; } /* Source */
+        .table th:nth-child(10), .table td:nth-child(10) { min-width: 100px; max-width: 120px; } /* Status */
+        .table th:nth-child(11), .table td:nth-child(11) { min-width: 180px; white-space: normal; } /* Actions */
 
         .status-badge {
             padding: 0.25rem 0.75rem;
@@ -416,7 +507,30 @@ try {
 
         .booking-actions {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.25rem;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+        }
+
+        .booking-actions .btn-sm {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.4rem;
+            min-width: auto;
+        }
+
+        /* Thermal print dropdown styles */
+        .thermal-menu a:hover {
+            background: #f8f9fa !important;
+            color: #007bff !important;
+        }
+
+        .thermal-menu a:first-child {
+            border-radius: 3px 3px 0 0;
+        }
+
+        .thermal-menu a:last-child {
+            border-radius: 0 0 3px 3px;
+            border-bottom: none !important;
         }
 
         .modal {
@@ -684,13 +798,37 @@ try {
                 grid-template-columns: 1fr;
             }
             
-            .table-responsive {
-                overflow-x: auto;
+            .container {
+                padding: 1rem 10px;
+            }
+            
+            .page-title {
+                font-size: 1.5rem;
+                margin-bottom: 1rem;
             }
             
             .booking-actions {
                 flex-direction: column;
+                gap: 0.2rem;
             }
+            
+            .booking-actions .btn-sm {
+                font-size: 0.6rem;
+                padding: 0.15rem 0.3rem;
+                text-align: center;
+            }
+            
+            /* Make table more compact on mobile */
+            .table th,
+            .table td {
+                padding: 0.5rem 0.25rem;
+                font-size: 0.8rem;
+            }
+            
+            /* Adjust column widths for mobile */
+            .table th:nth-child(1), .table td:nth-child(1) { min-width: 120px; } /* Guest Name */
+            .table th:nth-child(2), .table td:nth-child(2) { min-width: 100px; } /* Room */
+            .table th:nth-child(11), .table td:nth-child(11) { min-width: 140px; } /* Actions */
         }
     </style>
 </head>
@@ -714,6 +852,13 @@ try {
 
     <div class="container">
         <h1 class="page-title">Bookings Management</h1>
+        
+        <!-- Debug Test Section -->
+        <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 1rem; margin-bottom: 1rem; border-radius: 5px;">
+            <strong>🔧 Debug Test:</strong>
+            <a href="test_print.php" target="_blank" style="margin-left: 1rem; padding: 0.5rem 1rem; background: #007bff; color: white; text-decoration: none; border-radius: 3px;">Test Print Functions</a>
+            <span style="margin-left: 1rem; font-size: 0.9rem; color: #856404;">Use this to test if print functions are working</span>
+        </div>
 
         <?php if (isset($success_message)): ?>
             <div class="alert alert-success"><?php echo $success_message; ?></div>
@@ -767,13 +912,21 @@ try {
                         <label for="room_id">Room *</label>
                         <select id="room_id" name="room_id" required class="form-control">
                             <option value="">Select a Room</option>
-                            <?php foreach ($all_rooms as $room): ?>
-                                <option value="<?php echo $room['id']; ?>">
-                                    <?php echo htmlspecialchars($room['room_name']); ?> 
-                                    (<?php echo htmlspecialchars($room['room_type_name']); ?>) 
-                                    - <?php echo formatCurrency($room['price_per_night']); ?>/night
+                            <?php if (empty($all_rooms)): ?>
+                                <option value="" disabled>No rooms available
+                                    <?php if (!empty($error_message)): ?>
+                                        (Database error)
+                                    <?php endif; ?>
                                 </option>
-                            <?php endforeach; ?>
+                            <?php else: ?>
+                                <?php foreach ($all_rooms as $room): ?>
+                                    <option value="<?php echo $room['id']; ?>">
+                                        <?php echo htmlspecialchars($room['room_name']); ?> 
+                                        (<?php echo htmlspecialchars($room['room_type_name']); ?>) 
+                                        - <?php echo formatCurrency($room['price_per_night']); ?>/night
+                                    </option>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </select>
                     </div>
                     <div class="form-group">
@@ -849,6 +1002,9 @@ try {
 
         <!-- Bookings Table -->
         <div class="bookings-table">
+            <div class="scroll-notice" id="scrollNotice" style="display: none; background: #e7f3ff; padding: 0.5rem; border-radius: 5px 5px 0 0; text-align: center; font-size: 0.9rem; color: #0066cc;">
+                <i>💡 Scroll horizontally to view all columns</i>
+            </div>
             <div class="table-responsive">
                 <table class="table">
                     <thead>
@@ -871,6 +1027,9 @@ try {
                             <tr>
                                 <td colspan="11" style="text-align: center; padding: 2rem; color: #666;">
                                     No bookings found.
+                                    <?php if (!empty($error_message)): ?>
+                                        <br><small style="color: red;">Error: <?php echo htmlspecialchars($error_message); ?></small>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php else: ?>
@@ -906,6 +1065,13 @@ try {
                                             <button class="btn btn-warning btn-sm" onclick="updateStatus(<?php echo $booking['id']; ?>, '<?php echo $booking['status']; ?>')">Status</button>
                                             <button class="btn btn-success btn-sm" onclick="manageExpenses(<?php echo $booking['id']; ?>)">Expenses</button>
                                             <button class="btn btn-info btn-sm" onclick="printBill(<?php echo $booking['id']; ?>)">Print Bill</button>
+                                            <div class="dropdown" style="display: inline-block; position: relative;">
+                                                <button class="btn btn-secondary btn-sm" onclick="toggleThermalMenu(<?php echo $booking['id']; ?>)">🧾 Thermal ▼</button>
+                                                <div id="thermal-menu-<?php echo $booking['id']; ?>" class="thermal-menu" style="display: none; position: absolute; top: 100%; left: 0; background: white; border: 1px solid #ccc; border-radius: 3px; z-index: 1000; min-width: 120px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                                                    <a href="#" onclick="event.preventDefault(); printThermal(<?php echo $booking['id']; ?>, '80mm'); return false;" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem; border-bottom: 1px solid #eee;">📄 80mm Paper</a>
+                                                    <a href="#" onclick="event.preventDefault(); printThermal(<?php echo $booking['id']; ?>, '58mm'); return false;" style="display: block; padding: 0.5rem; text-decoration: none; color: #333; font-size: 0.8rem;">📄 58mm Paper</a>
+                                                </div>
+                                            </div>
                                         </div>
                                     </td>
                                 </tr>
@@ -987,7 +1153,7 @@ try {
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="amount">Amount ($)</label>
+                            <label for="amount">Amount (₹)</label>
                             <input type="number" id="amount" name="amount" step="0.01" min="0" required>
                         </div>
                         <div class="form-group">
@@ -1044,7 +1210,7 @@ try {
                         <p><strong>Check-in:</strong> ${new Date(booking.check_in).toLocaleDateString()}</p>
                         <p><strong>Check-out:</strong> ${new Date(booking.check_out).toLocaleDateString()}</p>
                         <p><strong>Guests:</strong> ${booking.guests_count}</p>
-                        <p><strong>Total Amount:</strong> ${booking.total_amount ? '$' + parseFloat(booking.total_amount).toFixed(2) : 'N/A'}</p>
+                        <p><strong>Total Amount:</strong> ${booking.total_amount ? '₹' + parseFloat(booking.total_amount).toFixed(2) : 'N/A'}</p>
                         <p><strong>Source:</strong> ${booking.booking_source}</p>
                         <p><strong>Status:</strong> ${booking.status}</p>
                         <p><strong>Created:</strong> ${new Date(booking.created_at).toLocaleString()}</p>
@@ -1080,10 +1246,10 @@ try {
             if (category) {
                 const categoryItems = expenseItems.filter(item => item.category === category);
                 categoryItems.forEach(item => {
-                    const option = document.createElement('option');
-                    option.value = JSON.stringify({description: item.item_name, amount: item.price});
-                    option.textContent = `${item.item_name} - $${parseFloat(item.price).toFixed(2)}`;
-                    quickSelect.appendChild(option);
+                                    const option = document.createElement('option');
+                option.value = JSON.stringify({description: item.item_name, amount: item.price});
+                option.textContent = `${item.item_name} - ₹${parseFloat(item.price).toFixed(2)}`;
+                quickSelect.appendChild(option);
                 });
             }
         }
@@ -1114,8 +1280,8 @@ try {
                                 <td>${expense.expense_type.charAt(0).toUpperCase() + expense.expense_type.slice(1)}</td>
                                 <td>${expense.description}</td>
                                 <td>${expense.quantity}</td>
-                                <td>$${parseFloat(expense.amount).toFixed(2)}</td>
-                                <td>$${total.toFixed(2)}</td>
+                                <td>₹${parseFloat(expense.amount).toFixed(2)}</td>
+                                <td>₹${total.toFixed(2)}</td>
                                 <td>
                                     <form method="POST" style="display: inline;" onsubmit="return confirm('Delete this expense?')">
                                         <input type="hidden" name="expense_id" value="${expense.id}">
@@ -1137,15 +1303,90 @@ try {
         }
 
         async function printBill(bookingId) {
+            console.log('printBill called with bookingId:', bookingId);
+            
             if (typeof bookingId === 'undefined') {
                 // If called from print button inside modal, print the current content
                 window.print();
                 return;
             }
             
-            // Open the professional invoice page in a new window
-            window.open(`print_bill.php?booking_id=${bookingId}`, '_blank');
+            try {
+                // Open the professional invoice page in a new window
+                const printWindow = window.open(`print_bill.php?booking_id=${bookingId}`, '_blank');
+                
+                if (!printWindow) {
+                    alert('Pop-up was blocked by your browser. Please allow pop-ups for this site and try again.');
+                    return false;
+                }
+                
+                console.log('Print bill window opened successfully');
+            } catch (error) {
+                console.error('Error opening print bill window:', error);
+                alert('Error opening print window: ' + error.message);
+            }
         }
+
+        function printThermal(bookingId, paperSize = '80mm') {
+            console.log('printThermal called with bookingId:', bookingId, 'paperSize:', paperSize);
+            
+            // Close any open thermal menus
+            document.querySelectorAll('.thermal-menu').forEach(menu => {
+                menu.style.display = 'none';
+            });
+            
+            try {
+                // Determine which thermal print file to use
+                const printFile = paperSize === '58mm' ? 'thermal_print_58mm.php' : 'thermal_print.php';
+                const windowWidth = paperSize === '58mm' ? 280 : 400;
+                
+                // Open the thermal receipt in a new window optimized for thermal printing
+                const thermalWindow = window.open(
+                    `${printFile}?booking_id=${bookingId}`, 
+                    '_blank', 
+                    `width=${windowWidth},height=600,scrollbars=yes,resizable=yes`
+                );
+                
+                if (!thermalWindow) {
+                    alert('Pop-up was blocked by your browser. Please allow pop-ups for this site and try again.');
+                    return false;
+                }
+                
+                console.log('Thermal print window opened successfully');
+                
+                // Optional: Auto-print after loading (uncomment if needed)
+                // thermalWindow.onload = function() {
+                //     setTimeout(() => {
+                //         thermalWindow.print();
+                //     }, 1000);
+                // };
+            } catch (error) {
+                console.error('Error opening thermal print window:', error);
+                alert('Error opening thermal print window: ' + error.message);
+            }
+        }
+
+        function toggleThermalMenu(bookingId) {
+            // Close all other thermal menus first
+            document.querySelectorAll('.thermal-menu').forEach(menu => {
+                if (menu.id !== `thermal-menu-${bookingId}`) {
+                    menu.style.display = 'none';
+                }
+            });
+            
+            // Toggle the specific menu
+            const menu = document.getElementById(`thermal-menu-${bookingId}`);
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Close thermal menus when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!event.target.closest('.dropdown')) {
+                document.querySelectorAll('.thermal-menu').forEach(menu => {
+                    menu.style.display = 'none';
+                });
+            }
+        });
 
         function generateBillHTML(data) {
             const checkIn = new Date(data.booking.check_in);
@@ -1163,8 +1404,8 @@ try {
                         <tr>
                             <td>${expense.description}</td>
                             <td>${expense.quantity}</td>
-                            <td>$${parseFloat(expense.amount).toFixed(2)}</td>
-                            <td>$${lineTotal.toFixed(2)}</td>
+                            <td>₹${parseFloat(expense.amount).toFixed(2)}</td>
+                            <td>₹${lineTotal.toFixed(2)}</td>
                         </tr>
                     `;
                 });
@@ -1216,8 +1457,8 @@ try {
                                 <tr>
                                     <td style="padding: 0.75rem; border: 1px solid #ddd;">${data.booking.room_name || 'Room'} - ${data.booking.room_type_name || ''}</td>
                                     <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: center;">${nights}</td>
-                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">$${(roomTotal / nights).toFixed(2)}</td>
-                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">$${roomTotal.toFixed(2)}</td>
+                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">₹${(roomTotal / nights).toFixed(2)}</td>
+                                    <td style="padding: 0.75rem; border: 1px solid #ddd; text-align: right;">₹${roomTotal.toFixed(2)}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1246,17 +1487,17 @@ try {
                         <table style="width: 100%; font-size: 1.1rem;">
                             <tr>
                                 <td style="text-align: right; padding: 0.5rem;"><strong>Room Total:</strong></td>
-                                <td style="text-align: right; padding: 0.5rem; width: 120px;"><strong>$${roomTotal.toFixed(2)}</strong></td>
+                                <td style="text-align: right; padding: 0.5rem; width: 120px;"><strong>₹${roomTotal.toFixed(2)}</strong></td>
                             </tr>
                             ${expensesTotal > 0 ? `
                             <tr>
                                 <td style="text-align: right; padding: 0.5rem;"><strong>Additional Charges:</strong></td>
-                                <td style="text-align: right; padding: 0.5rem;"><strong>$${expensesTotal.toFixed(2)}</strong></td>
+                                <td style="text-align: right; padding: 0.5rem;"><strong>₹${expensesTotal.toFixed(2)}</strong></td>
                             </tr>
                             ` : ''}
                             <tr style="border-top: 1px solid #333; font-size: 1.3rem; color: #333;">
                                 <td style="text-align: right; padding: 1rem;"><strong>TOTAL AMOUNT:</strong></td>
-                                <td style="text-align: right; padding: 1rem;"><strong>$${grandTotal.toFixed(2)}</strong></td>
+                                <td style="text-align: right; padding: 1rem;"><strong>₹${grandTotal.toFixed(2)}</strong></td>
                             </tr>
                         </table>
                     </div>
@@ -1275,6 +1516,85 @@ try {
                 event.target.style.display = 'none';
             }
         }
+
+        // Table responsiveness and scroll handling
+        function initializeTableResponsiveness() {
+            const tableContainer = document.querySelector('.table-responsive');
+            const table = document.querySelector('.table');
+            
+            if (tableContainer && table) {
+                // Check if table needs horizontal scrolling
+                function checkScrollable() {
+                    const scrollNotice = document.getElementById('scrollNotice');
+                    if (table.scrollWidth > tableContainer.clientWidth) {
+                        tableContainer.classList.add('scrollable');
+                        if (scrollNotice) scrollNotice.style.display = 'block';
+                    } else {
+                        tableContainer.classList.remove('scrollable');
+                        if (scrollNotice) scrollNotice.style.display = 'none';
+                    }
+                }
+                
+                // Initial check
+                checkScrollable();
+                
+                // Check on window resize
+                window.addEventListener('resize', checkScrollable);
+                
+                // Add scroll event for better UX
+                tableContainer.addEventListener('scroll', function() {
+                    const isScrolled = this.scrollLeft > 0;
+                    this.classList.toggle('is-scrolled', isScrolled);
+                });
+            }
+        }
+
+        // Add validation for walk-in booking form
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize table responsiveness
+            initializeTableResponsiveness();
+            const checkInInput = document.getElementById('check_in');
+            const checkOutInput = document.getElementById('check_out');
+            
+            if (checkInInput && checkOutInput) {
+                // Update checkout min date when check-in changes
+                checkInInput.addEventListener('change', function() {
+                    const checkInDate = new Date(this.value);
+                    checkInDate.setDate(checkInDate.getDate() + 1);
+                    const minCheckOut = checkInDate.toISOString().split('T')[0];
+                    checkOutInput.min = minCheckOut;
+                    
+                    // Clear checkout if it's now invalid
+                    if (checkOutInput.value && checkOutInput.value <= this.value) {
+                        checkOutInput.value = minCheckOut;
+                    }
+                });
+                
+                // Validate form on submit
+                const walkInForm = document.querySelector('.walk-in-form');
+                if (walkInForm) {
+                    walkInForm.addEventListener('submit', function(e) {
+                        const checkIn = new Date(checkInInput.value);
+                        const checkOut = new Date(checkOutInput.value);
+                        
+                        if (checkOut <= checkIn) {
+                            e.preventDefault();
+                            alert('Check-out date must be after check-in date');
+                            return false;
+                        }
+                        
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        
+                        if (checkIn < today) {
+                            e.preventDefault();
+                            alert('Check-in date cannot be in the past');
+                            return false;
+                        }
+                    });
+                }
+            }
+        });
     </script>
 </body>
 </html>
